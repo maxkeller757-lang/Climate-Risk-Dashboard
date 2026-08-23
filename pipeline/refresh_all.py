@@ -13,6 +13,7 @@ import os
 
 import air_quality
 import build_render_geometries
+import build_zip_crosswalk
 import composite
 import drought
 import fill_nozip_scores
@@ -49,6 +50,9 @@ def main():
 
     print("\n=== Render geometries ===")
     build_render_geometries.main()
+
+    print("\n=== ZIP -> ZCTA crosswalk ===")
+    build_zip_crosswalk.main()
 
     os.environ["SKIP_LAYER_WRITE"] = "1"
     for label, step in CATEGORY_STEPS:

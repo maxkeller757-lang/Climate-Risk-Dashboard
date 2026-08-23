@@ -22,6 +22,7 @@ ZIP_SCORES_PATH = DATA_DIR / "zip_scores.parquet"
 # aligned with the rendered fill instead of tracing a slightly different
 # edge.
 ZCTA_GEOMETRIES_PATH = DATA_DIR / "zcta_geometries_render.parquet"
+ZIP_TO_ZCTA_PATH = DATA_DIR / "zip_to_zcta.parquet"
 LAYERS_DIR = DATA_DIR / "layers"
 
 _cache: dict = {}
@@ -48,6 +49,24 @@ def load_zcta_geometries():
         return gdf
 
     return _load_if_stale(ZCTA_GEOMETRIES_PATH, "zcta_geometries", _load)
+
+
+def load_zip_to_zcta() -> dict:
+    """ZIP -> {zcta5, zip_type, join_type} as a plain dict, since the only
+    access pattern is single-key lookup on every search request."""
+
+    def _load():
+        df = pd.read_parquet(ZIP_TO_ZCTA_PATH)
+        df["zip5"] = df["zip5"].astype(str).str.zfill(5)
+        # NaN -> None so callers can distinguish "no ZCTA exists for this
+        # ZIP" from "ZIP not found" without a float-NaN check.
+        df["zcta5"] = df["zcta5"].where(df["zcta5"].notna(), None)
+        return {
+            r.zip5: {"zcta5": r.zcta5, "zip_type": r.zip_type, "join_type": r.join_type}
+            for r in df.itertuples()
+        }
+
+    return _load_if_stale(ZIP_TO_ZCTA_PATH, "zip_to_zcta", _load)
 
 
 def load_zip_scores() -> pd.DataFrame:

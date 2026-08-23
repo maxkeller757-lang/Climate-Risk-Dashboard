@@ -65,15 +65,48 @@ def test_zip_exists_false_with_specific_reason(value, expected_reason):
     assert body["reason"] == expected_reason
 
 
-def test_zip_exists_not_found_reason_for_well_formed_unknown_zip():
+def test_zip_exists_unknown_zip_reason():
     res = client.get("/api/zip/99999/exists")
     assert res.status_code == 200
     body = res.json()
-    assert body == {
-        "exists": False,
-        "reason": "not_found",
-        "message": "No ZCTA mapping found for zip 99999.",
-    }
+    assert body["exists"] is False
+    assert body["reason"] == "unknown_zip"
+    assert "99999" in body["message"]
+
+
+def test_po_box_zip_resolves_to_containing_zcta():
+    # 78381 (Rockport TX) is a PO-box-only ZIP: it has no land area of its
+    # own, so its code is not a ZCTA. It sits inside ZCTA 78382. This is
+    # exactly the case direct matching could never handle.
+    res = client.get("/api/zip/78381")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["zip"] == "78381"
+    assert body["zcta"] == "78382"
+    assert len(body["categories"]) == 9
+
+
+def test_po_box_zip_reports_exists():
+    res = client.get("/api/zip/78381/exists")
+    assert res.status_code == 200
+    assert res.json()["exists"] is True
+
+
+def test_non_conus_zip_is_distinguished_from_unknown():
+    # 96813 (Honolulu) is a real ZIP with a real ZCTA -- it's just outside
+    # this project's CONUS scope. Saying "not a real zip code" there would
+    # be wrong.
+    res = client.get("/api/zip/96813/exists")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["exists"] is False
+    assert body["reason"] == "outside_conus"
+
+
+def test_non_conus_zip_detail_404s_with_scope_message():
+    res = client.get("/api/zip/96813")
+    assert res.status_code == 404
+    assert "contiguous US" in res.json()["detail"]
 
 
 def test_get_zip_empty_path_404s_at_routing_level():

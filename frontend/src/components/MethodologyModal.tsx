@@ -103,8 +103,10 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
 
         <p className="mt-4 text-xs text-gray-400">
           Lightning was considered and dropped for v1 -- no clean, free, consistent
-          CONUS-wide feed was found. Zip-to-ZCTA mapping covers direct matches only;
-          PO-box-only and split zips aren't resolved yet.
+          CONUS-wide feed was found. Zip codes are mapped to ZCTAs via the HRSA
+          ZIP-to-ZCTA crosswalk, so PO-box-only zips (which have no land area of
+          their own) resolve to the ZCTA containing them -- the detail panel shows
+          both codes when they differ.
         </p>
       </div>
     </div>

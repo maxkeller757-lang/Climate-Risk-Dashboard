@@ -1,19 +1,24 @@
 """
-USPS zip code -> ZCTA5 resolution.
+USPS ZIP code -> ZCTA5 resolution.
 
-v1 (current): most USPS zip codes are numerically identical to their ZCTA5
-code (ZCTAs are built from the most common zip per census block), so we
-resolve by direct match against the zip_scores table.
+Resolution order:
 
-TODO (Phase 5 hardening, deferred per prototype-first pacing): direct match
-does not cover PO-box-only zips or zips that split across multiple ZCTAs.
-The intended fix is the free UDS Mapper ZIP-to-ZCTA crosswalk
-(https://udsmapper.org/zip-code-to-zcta-crosswalk/), which explicitly maps
-those edge cases to a real ZCTA. Until that's wired in, a zip with no direct
-ZCTA match returns None and the API layer reports it as not found rather
-than silently guessing.
+1. The crosswalk (data/zip_to_zcta.parquet, built by
+   pipeline/build_zip_crosswalk.py). This is what handles the ZIPs that
+   direct matching cannot: PO-box-only and large-volume-customer ZIPs have
+   no land area of their own, so their code is never a ZCTA -- 78381
+   (Rockport TX) lives inside ZCTA 78382. Roughly 7,100 ZIPs resolve only
+   this way.
+2. Direct numeric match, as a fallback. Most ZIPs are identical to their
+   ZCTA, so this still covers a newly-issued ZIP the crosswalk hasn't
+   caught up with yet.
+
+A ZIP that resolves to a ZCTA outside this project's CONUS scope (Alaska,
+Hawaii, Puerto Rico, territories) is reported separately from one that
+simply doesn't exist -- "we don't cover that" and "that isn't a ZIP" are
+different answers and the UI should be able to say which.
 """
-from .data_access import load_zip_scores
+from .data_access import load_zip_scores, load_zip_to_zcta
 
 
 def classify_zip_format(zipcode: str) -> str | None:
@@ -45,11 +50,34 @@ def is_valid_zip_format(zipcode: str) -> bool:
     return classify_zip_format(zipcode) is None
 
 
-def resolve_zcta(zipcode: str) -> str | None:
-    """Return the ZCTA5 code for a USPS zip, or None if unresolvable."""
+def resolve_zcta(zipcode: str) -> tuple[str | None, str | None]:
+    """Resolve a USPS ZIP to a scored ZCTA5.
+
+    Returns (zcta5, None) on success, or (None, reason) where reason is
+    one of:
+      unknown_zip      -- not a US ZIP code we have any record of
+      no_zcta          -- a real ZIP, but Census defines no ZCTA for it
+                          (a handful of territory ZIPs)
+      outside_conus    -- a real ZIP mapping to a real ZCTA, but outside
+                          this project's CONUS-only scope
+    """
     if not is_valid_zip_format(zipcode):
-        return None
-    scores = load_zip_scores()
-    if zipcode in set(scores["zcta5"]):
-        return zipcode
-    return None
+        return None, "unknown_zip"
+
+    scored = set(load_zip_scores()["zcta5"])
+    crosswalk = load_zip_to_zcta()
+
+    row = crosswalk.get(zipcode)
+    if row is None:
+        # Not in the crosswalk at all. Fall back to a direct match so a
+        # ZIP newer than the crosswalk file still works.
+        if zipcode in scored:
+            return zipcode, None
+        return None, "unknown_zip"
+
+    zcta = row["zcta5"]
+    if zcta is None:
+        return None, "no_zcta"
+    if zcta not in scored:
+        return None, "outside_conus"
+    return zcta, None

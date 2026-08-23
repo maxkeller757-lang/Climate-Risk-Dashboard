@@ -66,10 +66,8 @@ def test_malformed_zip_detail_returns_400():
 
 
 def test_unmapped_zip_returns_404_not_silent_guess():
-    # A well-formed 5-digit code very unlikely to be a real ZCTA5 (99999 is
-    # reserved/unassigned). v1 zip->ZCTA resolution only does a direct
-    # match (see zip_lookup.py); this should 404, not fabricate a nearest
-    # match.
+    # 99999 is reserved/unassigned -- not in the crosswalk and not a ZCTA.
+    # Should 404 rather than fabricate a nearest match.
     res = client.get("/api/zip/99999")
     assert res.status_code == 404
 

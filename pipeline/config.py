@@ -13,6 +13,9 @@ ZCTA_GEOMETRIES_PATH = DATA_DIR / "zcta_geometries.parquet"
 # always uses ZCTA_GEOMETRIES_PATH.
 ZCTA_RENDER_GEOMETRIES_PATH = DATA_DIR / "zcta_geometries_render.parquet"
 ZIP_SCORES_PATH = DATA_DIR / "zip_scores.parquet"
+# USPS ZIP -> ZCTA5 lookup used by the API's zip search; see
+# build_zip_crosswalk.py.
+ZIP_TO_ZCTA_PATH = DATA_DIR / "zip_to_zcta.parquet"
 COMPOSITE_WEIGHTS_PATH = PIPELINE_DIR / "composite_weights.json"
 
 # 10-year historical window used for all event-history-based categories

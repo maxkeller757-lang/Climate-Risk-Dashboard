@@ -2,7 +2,7 @@
 FastAPI app serving pre-computed hazard scores. No live geoprocessing here
 -- every response reads data the offline pipeline (pipeline/) already wrote.
 
-Run: pixi run uvicorn backend.app.main:app --reload --port 8001
+Run: pixi run uvicorn backend.app.main:app --reload --port 8002
 """
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +21,20 @@ _ZIP_FORMAT_ERRORS = {
     "non_numeric": "Zip code must contain only digits 0-9.",
     "too_short": "Zip code must be exactly 5 digits (too short).",
     "too_long": "Zip code must be exactly 5 digits (too long).",
+}
+
+# Well-formed ZIPs that still can't be scored. Kept distinct from each
+# other because "we don't cover that area" and "that isn't a real ZIP" are
+# different answers, and the search box should be able to say which.
+_ZIP_RESOLVE_ERRORS = {
+    "unknown_zip": "{zipcode} isn't a recognized US zip code.",
+    "no_zcta": (
+        "{zipcode} is a valid zip code, but the Census defines no ZCTA for it, "
+        "so there's no area to score."
+    ),
+    "outside_conus": (
+        "{zipcode} is outside the contiguous US. This dashboard covers CONUS only."
+    ),
 }
 
 app = FastAPI(title="Zip-Code Climate & Hazard Risk Dashboard API")
@@ -80,9 +94,13 @@ def zip_exists(zipcode: str):
     reason = classify_zip_format(zipcode)
     if reason:
         return {"exists": False, "reason": reason, "message": _ZIP_FORMAT_ERRORS[reason]}
-    zcta = resolve_zcta(zipcode)
+    zcta, reason = resolve_zcta(zipcode)
     if zcta is None:
-        return {"exists": False, "reason": "not_found", "message": f"No ZCTA mapping found for zip {zipcode}."}
+        return {
+            "exists": False,
+            "reason": reason,
+            "message": _ZIP_RESOLVE_ERRORS[reason].format(zipcode=zipcode),
+        }
     return {"exists": True}
 
 
@@ -136,14 +154,9 @@ def get_zip(zipcode: str):
     if reason:
         raise HTTPException(400, _ZIP_FORMAT_ERRORS[reason])
 
-    zcta = resolve_zcta(zipcode)
+    zcta, reason = resolve_zcta(zipcode)
     if zcta is None:
-        # See zip_lookup.py: v1 only resolves direct zip==ZCTA5 matches.
-        raise HTTPException(
-            404,
-            f"No ZCTA mapping found for zip {zipcode}. "
-            "PO-box-only and split zips aren't covered yet (Phase 5 TODO).",
-        )
+        raise HTTPException(404, _ZIP_RESOLVE_ERRORS[reason].format(zipcode=zipcode))
 
     return {"zip": zipcode, **_build_zcta_detail(zcta)}
 

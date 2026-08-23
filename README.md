@@ -157,10 +157,26 @@ Quality is chronic-exposure rather than acute-event risk, so it belongs as
 a modifier rather than a driver. The values are relative -- composite.py
 normalizes by their sum, so they need not total 1.0.
 
-**Zip -> ZCTA mapping**: most USPS zip codes numerically match a ZCTA5 code
-directly. PO-box-only zips and zips split across multiple ZCTAs are not yet
-handled (planned: UDS Mapper's free ZIP-to-ZCTA crosswalk) -- see
-`backend/app/zip_lookup.py`.
+**Zip -> ZCTA mapping**: most USPS zip codes numerically match a ZCTA5
+code directly, but ~9,200 PO-box-only and large-volume-customer zips have
+no land area of their own, so their code is never a ZCTA -- 78381
+(Rockport TX) sits inside ZCTA 78382. Those used to 404. A crosswalk
+(`pipeline/build_zip_crosswalk.py` -> `data/zip_to_zcta.parquet`) now
+resolves them, covering **7,135 zips that direct matching cannot**;
+direct matching stays as a fallback so a zip newer than the crosswalk
+still works. The detail panel shows both the zip and the ZCTA it mapped
+to, so a redirected lookup is visible rather than silent.
+
+Source note: the obvious choice was UDS Mapper's crosswalk, which this
+project originally planned for, but the AAFP sunset UDS Mapper in early
+2024 and its download is gone. HRSA publishes the same mapping, still
+maintained, as a direct .xlsx with no auth.
+
+Failures are now distinguished rather than lumped into one "not found":
+`unknown_zip` (no such zip), `no_zcta` (real zip, but Census defines no
+ZCTA -- a handful of territory zips), and `outside_conus` (real zip and
+real ZCTA, just outside this project's scope, e.g. Honolulu). "We don't
+cover that" and "that isn't a zip" are different answers.
 
 ## ZCTA geometry fixes
 
