@@ -20,6 +20,7 @@ LAYER_COLORS = {
     "drought": "#B8860B",
     "heat": "#E85D04",
     "seismic": "#8B5E3C",
+    "air_quality": "#9A9A94",
     # Midpoint of the frontend's green->yellow->red diverging ramp; the
     # frontend supplies the full ramp for this one (see colorRamps.ts).
     "composite": "#F9A825",

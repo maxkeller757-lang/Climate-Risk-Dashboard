@@ -51,6 +51,12 @@ const ROWS: Row[] = [
       "80% zonal-mean PGA (2% probability of exceedance in 50yr, point-in-time model) + 20% distance-decayed proximity to CONUS volcanic centers.",
   },
   {
+    name: "Air Quality",
+    source: "CDC/EPA fused daily county PM2.5 surface, 2015-2021",
+    method:
+      "Average days per year with county mean PM2.5 above 35.4 ug/m3 -- the point where the 24-hour AQI passes 100 into 'Unhealthy for Sensitive Groups'. Uses the fused monitor+model surface rather than EPA monitor data directly, because monitors exist in only 31% of CONUS counties and are sited in cities, which would have left most of the map interpolated and biased rural air upward. Window is 2015-2021 (the source ends 31 Oct 2022; a partial year would undercount).",
+  },
+  {
     name: "Composite",
     source: "Derived",
     method:

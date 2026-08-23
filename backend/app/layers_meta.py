@@ -54,6 +54,12 @@ LAYERS = [
         "color": "#8B5E3C",
     },
     {
+        "category": "air_quality",
+        "name": "Air Quality",
+        "description": "Average days per year with PM2.5 above the AQI 100 threshold (CDC/EPA fused daily surface, 2015-2021).",
+        "color": "#9A9A94",
+    },
+    {
         "category": "composite",
         "name": "Composite",
         "description": "Weighted power-mean of all 8 category scores -- compounding hazards score higher than a plain average would (see composite_weights.json).",

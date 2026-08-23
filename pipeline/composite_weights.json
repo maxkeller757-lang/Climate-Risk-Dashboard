@@ -1,5 +1,5 @@
 {
-  "_comment": "v2 weights, set after reviewing v1's equal-weighted result: Drought and Seismic get less weight (Drought overlaps heavily with Wildfire/Heat's own signal in the same places; Seismic is a comparatively rare/localized threat nationally), redistributed evenly across the other 6. Change values here (must sum to 1.0) to reweight without touching code.",
+  "_comment": "v3 weights. Values are RELATIVE, not required to sum to 1.0 -- composite.py normalizes by their sum. Full-weight categories are 0.15; Drought, Seismic and Air Quality are 0.05, i.e. each contributes one third of what a full-weight category does. Drought overlaps heavily with Wildfire/Heat's own signal in the same places; Seismic is a comparatively rare/localized threat nationally; Air Quality is chronic-exposure rather than acute-event risk, so it is deliberately a modifier rather than a driver.",
   "_exponent": {
     "_comment": "Composite is a weighted power mean (Holder mean) with this exponent, not a plain weighted average -- see composite.py. p=1 would be a plain average; higher p makes categories that are ALREADY high contribute disproportionately more, so a place with several categories in the 90s scores much higher than a place with the same average made up of uniformly-moderate scores. p=3 was chosen empirically: it visibly fixes the 'Miami Beach scores ~23 despite Flood=99/Hurricane=96' problem from v1 without letting a single maxed-out category alone dominate the score (one category at 100 with everything else at 0 still only yields ~53, not ~100).",
     "value": 3
@@ -11,5 +11,6 @@
   "winter_weather": 0.15,
   "heat": 0.15,
   "drought": 0.05,
-  "seismic": 0.05
+  "seismic": 0.05,
+  "air_quality": 0.05
 }

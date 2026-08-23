@@ -11,6 +11,7 @@ a partial failure only re-fetches what's missing.
 """
 import os
 
+import air_quality
 import build_render_geometries
 import composite
 import drought
@@ -38,6 +39,7 @@ CATEGORY_STEPS = [
     ("Drought", drought.main),
     ("Extreme Heat", heat.main),
     ("Seismic", seismic.main),
+    ("Air Quality", air_quality.main),
 ]
 
 

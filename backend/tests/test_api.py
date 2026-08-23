@@ -18,13 +18,23 @@ from backend.app.main import app  # noqa: E402
 client = TestClient(app)
 
 
-def test_layers_lists_nine():
+def test_layers_lists_all_categories():
     res = client.get("/api/layers")
     assert res.status_code == 200
     data = res.json()
-    assert len(data) == 9
     categories = {layer["category"] for layer in data}
-    assert {"severe_convective", "flood", "wildfire", "composite"} <= categories
+    assert categories == {
+        "severe_convective",
+        "winter_weather",
+        "flood",
+        "wildfire",
+        "hurricane",
+        "drought",
+        "heat",
+        "seismic",
+        "air_quality",
+        "composite",
+    }
 
 
 def test_valid_zip_known_high_tornado_risk():

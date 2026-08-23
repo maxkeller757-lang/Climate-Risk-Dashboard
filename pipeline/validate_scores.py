@@ -24,6 +24,10 @@ CHECKS = [
     ("33101", "Miami FL -- stable craton", "seismic", "low"),
     ("85003", "Phoenix AZ -- desert Southwest", "drought", "high"),
     ("85003", "Phoenix AZ -- desert Southwest", "heat", "high"),
+    ("93725", "Fresno CA -- San Joaquin Valley, worst PM2.5 in CONUS", "air_quality", "high"),
+    ("59802", "Missoula MT -- wildfire smoke + winter inversions", "air_quality", "high"),
+    ("33139", "Miami Beach FL -- coastal, well ventilated", "air_quality", "low"),
+    ("04101", "Portland ME -- coastal, well ventilated", "air_quality", "low"),
     ("70117", "Lower 9th Ward, New Orleans -- below sea level", "flood", "high"),
     ("33139", "Miami Beach FL -- barrier island", "flood", "high"),
 ]

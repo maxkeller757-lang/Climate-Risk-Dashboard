@@ -1,11 +1,12 @@
 # Zip-Code Climate & Hazard Risk Dashboard
 
-A dashboard that shows a 0-100 hazard risk score per US zip code across 8
+A dashboard that shows a 0-100 hazard risk score per US zip code across 9
 categories (severe convective weather, flood, wildfire, hurricane, winter
-weather, drought, extreme heat, seismic) plus a composite score, derived from
-real historical hazard data (2015-2024) via an offline GIS pipeline.
+weather, drought, extreme heat, seismic, air quality) plus a composite
+score, derived from real historical hazard data (mostly 2015-2024; see the
+per-category windows below) via an offline GIS pipeline.
 
-**Status: all 8 categories + composite live**, CONUS-wide (~33,010 ZCTAs).
+**Status: all 9 categories + composite live**, CONUS-wide (38,072 polygons).
 Map, zip search, click-to-inspect, and methodology modal all working
 end-to-end against real pre-computed data.
 
@@ -57,7 +58,7 @@ cd frontend && pixi run --manifest-path ../pixi.toml npm run dev
 ## Data sources & methodology
 
 All scores are percentile ranks (0-100) of a raw metric, computed once
-offline and never recomputed at request time. Percentile ranking makes the 8
+offline and never recomputed at request time. Percentile ranking makes the 9
 categories comparable on the same scale even though their raw units differ
 wildly (event counts vs. % area vs. temperature days).
 
@@ -71,6 +72,7 @@ wildly (event counts vs. % area vs. temperature days).
 | Drought | U.S. Drought Monitor county statistics | 2015-2024 | Average % time in D0-or-worse, area-weighted county -> ZCTA |
 | Extreme Heat | gridMET daily max temp + min RH | 2015-2024 | 60% days >90F, 40% days heat index >100F (Rothfusz regression) |
 | Seismic | USGS National Seismic Hazard Model (2018) + Volcanic Threat Assessment | latest model | 80% zonal-mean PGA + 20% distance-decayed volcano threat |
+| Air Quality | CDC/EPA fused daily county PM2.5 surface | 2015-2021 | Avg days/year with county mean PM2.5 above 35.4 ug/m3 (AQI > 100) |
 
 **WHP and the USGS seismic hazard model are point-in-time hazard models, not
 event histories** -- they use the latest published model version rather than
@@ -119,18 +121,41 @@ heuristic (EF-scale / magnitude-based where available, deaths/injuries as a
 proxy otherwise), not a validated meteorological index. Worth revisiting
 against domain literature before treating scores as authoritative.
 
+**Air Quality uses a fused surface, not raw monitor data.** EPA's AQS
+monitor summaries have the metric we want but only cover 949 of 3,109
+CONUS counties (31% of counties, 43% of land, 78% of population) -- two
+thirds of the map would have been interpolated, and because monitors are
+sited in cities that interpolation would have biased rural air *upward*.
+The CDC/EPA fused surface blends those same monitors with a CMAQ model to
+give a daily value for every county, so the layer is measured-and-modelled
+everywhere instead of measured in cities and guessed elsewhere. Being
+daily, it also preserves the "days above a threshold" metric that a
+satellite annual-mean product would have forced us to abandon. Its window
+is 2015-2021: the source ends 31 Oct 2022, and including a partial year
+would undercount.
+
+One join hazard worth recording: Connecticut replaced its eight counties
+with nine Planning Regions in 2022, so the 2023 Census county file and
+this 2015-2021 dataset share no Connecticut GEOIDs at all. The join
+matched nothing and silently dropped the entire state until
+`load_counties_legacy_ct()` was added -- a reminder that a county-FIPS
+join against a pre-2022 dataset fails quietly rather than loudly.
+
 **Composite score**: a weighted power mean (Holder mean, exponent 3), not a
-plain weighted average, of the 8 category percentiles -- both the weights
+plain weighted average, of the 9 category percentiles -- both the weights
 and the exponent live in `pipeline/composite_weights.json`, not hardcoded,
 so retuning either is a config change. v1's plain equal-weighted average let
 a place with several categories in the 90s (e.g. Miami Beach: Flood=99,
 Hurricane=96) get dragged down to a mediocre composite (23) by unrelated low
 categories; raising each score to a power before averaging makes already-high
 scores dominate, so Miami Beach now composites to 80. Weights were also
-revised off equal (12.5% each) to Drought and Seismic at 5% each (Drought
-overlaps heavily with Wildfire/Heat's own signal; Seismic is a comparatively
-rare, localized threat nationally), redistributed across the other 6 at 15%
-each.
+revised off equal: Drought, Seismic and Air Quality carry 0.05 against
+0.15 for the other six, so each contributes one third as much. Drought
+overlaps heavily with Wildfire/Heat's own signal in the same places;
+Seismic is a comparatively rare, localized threat nationally; and Air
+Quality is chronic-exposure rather than acute-event risk, so it belongs as
+a modifier rather than a driver. The values are relative -- composite.py
+normalizes by their sum, so they need not total 1.0.
 
 **Zip -> ZCTA mapping**: most USPS zip codes numerically match a ZCTA5 code
 directly. PO-box-only zips and zips split across multiple ZCTAs are not yet

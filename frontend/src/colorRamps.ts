@@ -17,6 +17,14 @@ const CATEGORY_COLOR_STOPS: Record<string, ColorStop[]> = {
     [70, "#D32F2F"],
     [100, "#6B0000"],
   ],
+  // Smog ramp: clear air -> haze -> soot. Three stops for the same reason
+  // wildfire needs them -- a plain light-to-grey interpolation leaves the
+  // worst areas barely distinguishable from mid-range ones.
+  air_quality: [
+    [0, "#f7f7f6"],
+    [60, "#9A9A94"],
+    [100, "#3A3A38"],
+  ],
 };
 
 export function colorStopsFor(layer: LayerMeta): ColorStop[] {
