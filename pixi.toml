@@ -1,0 +1,26 @@
+[workspace]
+name = "zip-hazard-dashboard"
+version = "0.1.0"
+description = "Zip-Code Climate & Hazard Risk Dashboard"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[dependencies]
+python = "3.11.*"
+geopandas = "*"
+rasterio = "*"
+shapely = "*"
+pandas = "*"
+requests = "*"
+rasterstats = "*"
+pyarrow = "*"
+netcdf4 = "*"
+pytest = "*"
+httpx = "*"
+fastapi = "*"
+uvicorn = "*"
+nodejs = "20.*"
+
+[tasks]
+pipeline = "python pipeline/refresh_all.py"
+api = "uvicorn backend.app.main:app --reload --port 8000"
