@@ -8,3 +8,17 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* MapLibre's zoom/compass controls anchor to the very top-right corner,
+   which is exactly where the zip search panel sits -- the controls ended
+   up behind it.
+
+   Sized against the panel's *tallest* state, not its resting one: it is
+   58px idle, but grows to 110px when a lookup fails and the error wraps
+   (the longest message, the no-ZCTA-match one, runs to three lines at
+   w-64). 16px top offset + 110px + a 14px gap = 140px. If the error
+   copy in ZipSearch/main.py ever gets longer, this needs to grow with
+   it -- there is no layout coupling that would catch that automatically. */
+.maplibregl-ctrl-top-right {
+  margin-top: 140px;
+}
