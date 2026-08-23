@@ -208,6 +208,26 @@ from 2.25M vertices to 1.11M, and layers are written with the GeoJSON
 writer's `COORDINATE_PRECISION=5` (~1m) rather than 14 decimal places of
 sub-micrometer noise. Together: **101MB -> 34MB per layer.**
 
+Layers are then pre-gzipped at pipeline write time and served as the
+compressed sibling to any client sending `Accept-Encoding: gzip`, taking
+**34MB -> 8.4MB on the wire (24.6%)**. Compression happens once during the
+build, not per request, for two reasons: `FileResponse` sends large files
+through uvicorn's zero-copy `pathsend`, so they never reach body-based
+middleware like `GZipMiddleware` at all; and compressing 34MB live would
+cost 1-3s of blocking CPU on every layer switch, stalling the event loop
+for concurrent requests. `GZipMiddleware` is still registered, but only
+earns its keep on the small dynamic JSON endpoints.
+
+Measured on localhost, a layer switch is ~190ms click-to-bytes-delivered
+with **zero main-thread blocking** -- MapLibre parses GeoJSON on a worker,
+so the UI stays responsive while 32.6MB is decoded. Localhost has no
+bandwidth ceiling, so the compression matters far more in the real world:
+on a 25 Mbps connection the same payload drops from roughly 11s to 2.7s.
+
+Compression is where the remaining easy wins have run out; the next real
+step would be vector tiles (MVT/PMTiles), which would fetch only the
+polygons in view instead of all 38k every time.
+
 Two rendering traps worth knowing about, both of which silently punched
 holes in the map before being caught:
   * `shapely.set_precision()` snaps to a grid and *deletes* polygons
