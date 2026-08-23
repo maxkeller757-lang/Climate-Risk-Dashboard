@@ -23,6 +23,10 @@ const CATEGORY_FILL_LAYER = "active-category-fill";
 const CATEGORY_LINE_LAYER = "active-category-line";
 const HIGHLIGHT_SOURCE = "zip-highlight";
 const HIGHLIGHT_LINE_LAYER = "zip-highlight-line";
+// First layer in basemapStyle.json's boundary/label group (state lines,
+// then place names) -- everything from here up must stay above the
+// choropleth; everything below it (roads, water, landuse) stays beneath.
+const BASEMAP_TOP_LAYER = "boundary_2";
 
 // No API key needed: vector tiles from OpenFreeMap (free, unlimited, no
 // registration -- https://openfreemap.org), trimmed from their "liberty"
@@ -138,6 +142,12 @@ export default function MapView({
         type: "geojson",
         data: layerGeoJsonUrl(activeLayer.category),
       });
+      // Insert below BASEMAP_TOP_LAYER (state/county boundary lines +
+      // place labels), not below HIGHLIGHT_LINE_LAYER: that put the
+      // choropleth above every basemap layer, burying city names and
+      // state lines under the fill. Roads/water/topography sit earlier in
+      // the basemap style than BASEMAP_TOP_LAYER, so they stay beneath
+      // the choropleth as intended.
       map.addLayer(
         {
           id: CATEGORY_FILL_LAYER,
@@ -145,7 +155,7 @@ export default function MapView({
           source: CATEGORY_SOURCE,
           paint: { "fill-color": fillColorExpression(activeLayer), "fill-opacity": 0.75 },
         },
-        HIGHLIGHT_LINE_LAYER,
+        BASEMAP_TOP_LAYER,
       );
       map.addLayer(
         {
@@ -154,7 +164,7 @@ export default function MapView({
           source: CATEGORY_SOURCE,
           paint: { "line-color": "#00000022", "line-width": 0.3 },
         },
-        HIGHLIGHT_LINE_LAYER,
+        BASEMAP_TOP_LAYER,
       );
 
       const checkLoaded = () => {
