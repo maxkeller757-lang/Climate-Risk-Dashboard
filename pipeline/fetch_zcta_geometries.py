@@ -153,7 +153,25 @@ def main():
     gdf = _fill_gaps(gdf)
 
     gdf = gdf.to_crs(WEB_CRS)
-    gdf = gdf[gdf.is_valid & ~gdf.is_empty].reset_index(drop=True)
+
+    # Repair, don't discard. simplify_coverage can leave a polygon
+    # self-intersecting, and silently filtering those out deletes real
+    # ZCTAs and punches a hole in the map -- it cost us 31027 and 30454
+    # (two adjacent rural Georgia ZCTAs, 516 km^2 between them), which
+    # also made those ZIPs un-searchable in the API.
+    broken = ~gdf.geometry.is_valid
+    if broken.any():
+        print(f"Repairing {broken.sum()} invalid geometry/geometries after simplification...")
+        gdf.loc[broken, "geometry"] = gdf.loc[broken, "geometry"].apply(make_valid)
+
+    dropped = gdf[gdf.geometry.is_empty | gdf.geometry.isna() | ~gdf.geometry.is_valid]
+    if len(dropped):
+        raise RuntimeError(
+            f"{len(dropped)} polygon(s) are still unusable after repair "
+            f"(e.g. {dropped['zcta5'].head(5).tolist()}). Dropping them would "
+            "leave holes in CONUS -- fix the geometry instead."
+        )
+    gdf = gdf.reset_index(drop=True)
 
     ZCTA_GEOMETRIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_parquet(ZCTA_GEOMETRIES_PATH)

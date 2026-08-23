@@ -29,10 +29,15 @@ from config import (
 )
 from sources.census_counties import load_counties
 
-# Coverage tolerance: the ZCTA layer and the county cartographic layer are
-# generalised at different scales, so their coastlines never agree
-# perfectly. Anything under this is edge noise, not a real hole.
-MAX_UNCOVERED_KM2 = 5000
+# Coverage tolerance. The ZCTA layer and the county cartographic layer are
+# generalised at different scales, so their coastlines never agree exactly
+# and a slim ribbon of disagreement is unavoidable. Judge that by the size
+# of the largest single piece, not the total: real coastline noise is
+# thousands of slivers of ~1 km^2 each, whereas one missing ZCTA shows up
+# as a single large blob. A 517 km^2 hole (two dropped Georgia ZCTAs) once
+# passed a 5,000 km^2 total-area check precisely because the total was
+# dominated by legitimate noise.
+MAX_UNCOVERED_PIECE_KM2 = 25
 
 
 def check_land_coverage() -> bool:
@@ -46,23 +51,26 @@ def check_land_coverage() -> bool:
     land_km2 = land.area / 1e6
     pct = 100 * uncovered_km2 / land_km2
 
-    print(f"  CONUS land:      {land_km2:>12,.0f} km^2")
-    print(f"  Uncovered:       {uncovered_km2:>12,.0f} km^2  ({pct:.3f}%)")
+    pieces = gpd.GeoDataFrame(geometry=[uncovered], crs=EQUAL_AREA_CRS).explode(
+        index_parts=False
+    )
+    pieces["km2"] = pieces.geometry.area / 1e6
+    pieces = pieces.sort_values("km2", ascending=False)
+    largest = float(pieces["km2"].iloc[0]) if len(pieces) else 0.0
 
-    ok = uncovered_km2 <= MAX_UNCOVERED_KM2
+    print(f"  CONUS land:      {land_km2:>12,.0f} km^2")
+    print(f"  Uncovered:       {uncovered_km2:>12,.0f} km^2  ({pct:.3f}%) in {len(pieces):,} pieces")
+    print(f"  Largest hole:    {largest:>12,.1f} km^2  (limit {MAX_UNCOVERED_PIECE_KM2})")
+
+    ok = largest <= MAX_UNCOVERED_PIECE_KM2
     if not ok:
-        pieces = gpd.GeoDataFrame(geometry=[uncovered], crs=EQUAL_AREA_CRS).explode(
-            index_parts=False
-        )
-        pieces = pieces[pieces.geometry.area > 1e6].sort_values(
-            by="geometry", key=lambda s: s.area, ascending=False
-        )
-        print(f"  FAIL: {len(pieces)} hole(s) larger than 1 km^2. Largest centroids (lon, lat):")
-        for geom in pieces.geometry.head(5):
-            c = gpd.GeoSeries([geom.centroid], crs=EQUAL_AREA_CRS).to_crs("EPSG:4326").iloc[0]
-            print(f"    {c.x:.3f}, {c.y:.3f}  ({geom.area / 1e6:,.0f} km^2)")
+        big = pieces[pieces["km2"] > MAX_UNCOVERED_PIECE_KM2].to_crs("EPSG:4326")
+        print(f"  FAIL: {len(big)} hole(s) over the limit. Centroids (lon, lat):")
+        for row in big.head(5).itertuples():
+            c = row.geometry.centroid
+            print(f"    {c.x:.3f}, {c.y:.3f}  ({row.km2:,.1f} km^2)")
     else:
-        print("  PASS (within coastline-generalisation tolerance)")
+        print("  PASS (remaining slivers are coastline-generalisation noise)")
     return ok
 
 
