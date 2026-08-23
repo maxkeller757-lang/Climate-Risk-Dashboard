@@ -8,6 +8,7 @@ __pycache__/
 # Data (large / regenerable by the pipeline)
 data/raw/
 data/layers/*.geojson
+data/layers/*.geojson.gz
 data/*.parquet
 data/*.sqlite
 

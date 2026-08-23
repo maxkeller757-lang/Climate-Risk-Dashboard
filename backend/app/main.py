@@ -2,10 +2,11 @@
 FastAPI app serving pre-computed hazard scores. No live geoprocessing here
 -- every response reads data the offline pipeline (pipeline/) already wrote.
 
-Run: pixi run uvicorn backend.app.main:app --reload --port 8000
+Run: pixi run uvicorn backend.app.main:app --reload --port 8001
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
 import json
@@ -32,6 +33,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Compresses the small dynamic JSON endpoints (/api/layers, /api/zip/...)
+# on the fly -- cheap, since those responses are a few KB. It does NOT
+# touch /api/layer/{category}: FileResponse sends large files via uvicorn's
+# zero-copy `pathsend` extension, which hands the file straight to the OS
+# and never passes through body-based middleware like this one. That's
+# handled separately below with a file pre-gzipped at pipeline build time
+# (compressing the real 34MB payload live would cost 1-3s of blocking CPU
+# per request). No brotli here: that needs a third-party ASGI middleware
+# (e.g. brotli-asgi) since Starlette only ships gzip.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 
 @app.get("/api/layers")
 def get_layers():
@@ -39,7 +51,7 @@ def get_layers():
 
 
 @app.get("/api/layer/{category}")
-def get_layer(category: str):
+def get_layer(category: str, request: Request):
     if category not in LAYERS_BY_CATEGORY:
         raise HTTPException(404, f"Unknown layer category: {category}")
     path = layer_geojson_path(category)
@@ -47,6 +59,18 @@ def get_layer(category: str):
         raise HTTPException(
             404,
             f"Layer '{category}' has not been generated yet by the pipeline.",
+        )
+
+    # Serve the pre-gzipped sibling (~25% of the size) when the client
+    # supports it -- every browser does. GZipMiddleware can't do this job
+    # itself; see the comment on its registration above.
+    accepts_gzip = "gzip" in request.headers.get("accept-encoding", "")
+    gz_path = path.with_name(path.name + ".gz")
+    if accepts_gzip and gz_path.exists():
+        return FileResponse(
+            gz_path,
+            media_type="application/geo+json",
+            headers={"Content-Encoding": "gzip"},
         )
     return FileResponse(path, media_type="application/geo+json")
 

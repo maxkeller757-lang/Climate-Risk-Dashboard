@@ -3,7 +3,10 @@ Shared scoring utilities: percentile-ranking a raw metric to a 0-100 score,
 merging category scores into the shared zip_scores table, and writing the
 per-category GeoJSON layer the frontend map reads.
 """
+import gzip
 import os
+import time
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -15,6 +18,25 @@ from config import (
     ZCTA_RENDER_GEOMETRIES_PATH,
     ZIP_SCORES_PATH,
 )
+
+
+def _replace_with_retry(src: Path, dst: Path, attempts: int = 6, delay_s: float = 5.0) -> None:
+    """os.replace(), retrying on Windows' "file in use" errors. A live
+    backend actively streaming this exact file to a browser (FileResponse
+    over uvicorn's zero-copy pathsend) holds an OS-level lock on it for the
+    duration of that transfer -- a large layer download can take a few
+    seconds, during which even a rename fails. Rerunning the pipeline while
+    the dashboard is open elsewhere is a completely normal thing to do, so
+    this should recover on its own rather than crashing the whole run."""
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts:
+                raise
+            print(f"  {dst.name} is in use (likely being downloaded right now) -- retry {attempt}/{attempts} in {delay_s:.0f}s...")
+            time.sleep(delay_s)
 
 
 def percentile_rank(df: pd.DataFrame, raw_col: str, score_col: str = "score") -> pd.DataFrame:
@@ -149,6 +171,13 @@ def write_layer_geojson(category: str, color_hex: str) -> None:
 
     LAYERS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = LAYERS_DIR / f"{category}.geojson"
+    # Write to a temp file and os.replace() into place, rather than having
+    # GDAL overwrite out_path directly: on Windows, whatever last held the
+    # file open (an antivirus scan, a lingering FileResponse to a browser
+    # tab, etc.) can keep an overwrite-in-place PermissionError'ing for a
+    # while after the reader is gone. os.replace is atomic and doesn't
+    # require the old file to be unlocked, only renameable.
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
     # Coordinate rounding is done by the GeoJSON writer (COORDINATE_PRECISION),
     # not shapely.set_precision(): set_precision snaps to a grid and
     # *collapses* polygons smaller than that grid to empty geometry -- it
@@ -158,6 +187,17 @@ def write_layer_geojson(category: str, color_hex: str) -> None:
     # coords carry ~14 decimals (sub-micrometer); 5 decimals is ~1m, still
     # far finer than COVERAGE_SIMPLIFY_TOLERANCE_M.
     merged[["zcta5", "score", "color", "geometry"]].to_file(
-        out_path, driver="GeoJSON", COORDINATE_PRECISION=5
+        tmp_path, driver="GeoJSON", COORDINATE_PRECISION=5
     )
+    _replace_with_retry(tmp_path, out_path)
     print(f"Wrote {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)")
+
+    # Pre-gzip once here, not per-request: this text compresses to ~25% of
+    # its size, but gzipping 34MB takes 1-3s of blocking CPU -- fine to pay
+    # once at build time, not on every layer-switch request (that would
+    # also stall uvicorn's event loop for other requests). The API serves
+    # this file directly when the client sends Accept-Encoding: gzip.
+    gz_path = out_path.with_name(out_path.name + ".gz")
+    with open(out_path, "rb") as src, gzip.open(gz_path, "wb", compresslevel=9) as dst:
+        dst.write(src.read())
+    print(f"Wrote {gz_path} ({gz_path.stat().st_size / 1e6:.1f} MB)")
