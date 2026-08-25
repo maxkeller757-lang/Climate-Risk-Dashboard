@@ -80,6 +80,40 @@ def test_zcta_detail_matches_zip_detail_for_direct_match():
     assert zcta_res["zip"] is None
 
 
+def test_layer_top_zones_shape_and_state():
+    res = client.get("/api/layer/hurricane/top")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["category"] == "hurricane"
+    assert len(body["zones"]) == 3
+    for zone in body["zones"]:
+        assert len(zone["zcta"]) == 5 and zone["zcta"].isdigit()
+        # Every polygon carries a state, and the table is useless without it.
+        assert zone["state"] is not None and len(zone["state"]) == 2
+        assert 0 <= zone["score"] <= 100
+    # Descending by score.
+    scores = [z["score"] for z in body["zones"]]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_layer_top_zones_excludes_gap_areas():
+    # "The three worst places for wildfire" listing unnamed patches of
+    # national forest would be useless; gap areas must never appear.
+    for category in ("wildfire", "flood", "composite"):
+        body = client.get(f"/api/layer/{category}/top?limit=25").json()
+        assert all(not z["zcta"].startswith("NOZIP-") for z in body["zones"])
+
+
+def test_layer_top_zones_respects_limit():
+    body = client.get("/api/layer/flood/top?limit=5").json()
+    assert len(body["zones"]) == 5
+
+
+def test_layer_top_zones_unknown_category_404s():
+    res = client.get("/api/layer/not_a_real_category/top")
+    assert res.status_code == 404
+
+
 def test_unknown_layer_category_404s():
     res = client.get("/api/layer/not_a_real_category")
     assert res.status_code == 404

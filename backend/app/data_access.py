@@ -25,6 +25,11 @@ ZCTA_GEOMETRIES_PATH = DATA_DIR / "zcta_geometries_render.parquet"
 ZIP_TO_ZCTA_PATH = DATA_DIR / "zip_to_zcta.parquet"
 LAYERS_DIR = DATA_DIR / "layers"
 
+# Id prefix the pipeline gives to land with no ZIP code. Duplicated from
+# pipeline/config.py rather than imported: the backend deliberately has no
+# dependency on the pipeline package, and only ever reads its output.
+NO_ZIP_PREFIX = "NOZIP-"
+
 _cache: dict = {}
 
 

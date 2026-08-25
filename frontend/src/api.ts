@@ -49,6 +49,26 @@ export async function fetchZipDetail(zip: string): Promise<ZipDetail> {
   return res.json();
 }
 
+export interface TopZone {
+  zcta: string;
+  state: string | null;
+  score: number;
+}
+
+export interface LayerTopZones {
+  category: string;
+  name: string;
+  zones: TopZone[];
+}
+
+export async function fetchLayerTopZones(
+  category: string,
+): Promise<LayerTopZones> {
+  const res = await fetch(`${BASE}/layer/${category}/top`);
+  if (!res.ok) throw new Error(`No top zones for ${category}`);
+  return res.json();
+}
+
 export async function fetchZctaDetail(zcta: string): Promise<ZipDetail> {
   const res = await fetch(`${BASE}/zcta/${zcta}`);
   if (!res.ok) {

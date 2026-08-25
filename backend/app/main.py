@@ -11,7 +11,14 @@ from fastapi.responses import FileResponse
 
 import json
 
-from .data_access import layer_geojson_path, load_zcta_geometries, load_zip_scores
+import pandas as pd
+
+from .data_access import (
+    NO_ZIP_PREFIX,
+    layer_geojson_path,
+    load_zcta_geometries,
+    load_zip_scores,
+)
 from .layers_meta import LAYERS, LAYERS_BY_CATEGORY
 from .zip_lookup import classify_zip_format, resolve_zcta
 
@@ -114,6 +121,54 @@ def get_zcta_geometry(zcta5: str):
         raise HTTPException(404, f"No geometry for ZCTA {zcta5}.")
     feature = json.loads(row.iloc[[0]].to_json())["features"][0]
     return feature
+
+
+@app.get("/api/layer/{category}/top")
+def get_layer_top_zones(category: str, limit: int = 3):
+    """Highest-scoring zones for one layer, with the state each sits in.
+
+    Shown when the user's most recent action was picking a layer rather
+    than a polygon: at that moment the question is "where is this hazard
+    worst", which a single polygon's breakdown can't answer.
+
+    No-ZIP gap areas are excluded. They are real land and carry real
+    scores, but "the three worst places for wildfire" listing three
+    unnamed patches of national forest would be useless to someone
+    reading it, and gap areas are numerous enough at the top of some
+    layers to crowd out every actual zip code.
+    """
+    if category not in LAYERS_BY_CATEGORY:
+        raise HTTPException(404, f"Unknown layer category: {category}")
+    limit = max(1, min(limit, 25))
+
+    score_col = f"{category}_score"
+    scores = load_zip_scores()
+    if score_col not in scores.columns:
+        raise HTTPException(404, f"Layer '{category}' has not been scored yet.")
+
+    real = scores[~scores["zcta5"].str.startswith(NO_ZIP_PREFIX)]
+    states = load_zcta_geometries()[["zcta5", "state"]]
+    merged = real.merge(states, on="zcta5", how="left")
+
+    # Tie-break on the raw metric. Percentile scores saturate at the top
+    # -- several ZCTAs round to 100.0 -- so ordering by score alone would
+    # pick arbitrarily among them and could reshuffle between runs. The
+    # raw value still separates them.
+    raw_col = f"{category}_raw"
+    sort_cols = [score_col, raw_col] if raw_col in merged.columns else [score_col]
+    top = merged.sort_values(sort_cols, ascending=False).head(limit)
+    return {
+        "category": category,
+        "name": LAYERS_BY_CATEGORY[category]["name"],
+        "zones": [
+            {
+                "zcta": row.zcta5,
+                "state": None if pd.isna(row.state) else row.state,
+                "score": round(float(getattr(row, score_col)), 1),
+            }
+            for row in top.itertuples()
+        ],
+    }
 
 
 def _build_zcta_detail(zcta: str) -> dict:

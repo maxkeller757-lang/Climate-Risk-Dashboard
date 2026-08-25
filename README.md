@@ -194,6 +194,30 @@ showing as a blank hole). `pipeline/fetch_zcta_geometries.py` fixes both:
    computed, and each gap piece is merged into its nearest ZCTA by boundary
    distance.
 
+## The bottom-right panel
+
+Two panels share that slot, and which one shows is decided by whichever
+the user acted on most recently:
+
+* Selected a **polygon** (map click, zip search, or a row in the table
+  below) -> that polygon's full category breakdown.
+* Selected a **layer** -> a table of the three highest-risk zip codes for
+  that layer and the state each is in.
+
+The reason for the swap is that the two selections ask different
+questions. Picking a layer asks "where is this hazard worst?", which the
+breakdown of whatever polygon happened to be clicked earlier cannot
+answer; picking a polygon asks "what is it like *here*?", which the
+national table cannot. Zip codes in the table are clickable and drill
+through to the breakdown, which also flips focus back to the polygon.
+
+The table excludes no-ZIP gap areas. They are real land carrying real
+scores, but "the three worst places for wildfire" naming three unnamed
+patches of national forest helps nobody, and on some layers they are
+numerous enough near the top to crowd out every actual zip code.
+Ranking ties are broken on the raw metric, since percentiles saturate at
+the top and several ZCTAs round to 100.0.
+
 ## No-ZIP land areas
 
 Not all CONUS land has a ZIP code -- tidal marsh, barrier islands, and
