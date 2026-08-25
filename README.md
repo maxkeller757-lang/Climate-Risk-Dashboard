@@ -224,7 +224,9 @@ score while differing in raw -- sorting by `[score, raw]` is identical to
 sorting by `[score]` alone. What looked like ties in the UI (three zips
 all reading "100.0") were never ties at all, just `round(score, 1)`
 collapsing distinct values (e.g. 99.9946 and 99.9917 both round to 100.0)
--- fixed by showing 3 decimal places in this table specifically.
+-- fixed by showing 5 decimal places in this table specifically. 3 still
+wasn't enough: hurricane has two ZCTAs in its top 25 that agree to 3
+decimals and only separate at the 4th.
 
 Real ties do exist, though, wherever the raw metric hits a hard ceiling --
 21 ZCTAs sit at exactly 100% of area in a flood zone, 25 at the air

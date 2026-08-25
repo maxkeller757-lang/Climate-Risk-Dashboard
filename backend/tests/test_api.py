@@ -109,11 +109,23 @@ def test_layer_top_zones_score_precision_distinguishes_near_ties():
     # 1dp collapsed several distinct top scores to an identical "100.0",
     # which read as a tie that wasn't real (percentile_rank derives score
     # from raw via a strictly monotonic map, so equal scores only occur
-    # where the raw metric hits a genuine ceiling). 3dp should separate any
-    # layer where the top few aren't at a literal ceiling.
+    # where the raw metric hits a genuine ceiling). 3dp still wasn't
+    # enough -- hurricane has two ZCTAs in its top 25 that agree to 3
+    # decimals and only separate at the 4th -- so this checks at 5dp.
     body = client.get("/api/layer/hurricane/top").json()
     scores = [z["score"] for z in body["zones"]]
     assert len(set(scores)) == len(scores)
+
+
+def test_layer_top_zones_5dp_separates_the_near_duplicate_case():
+    # The concrete case that motivated 5dp: 28512 (99.840351) and 27943
+    # (99.839530) both round to 99.840 at 3dp -- indistinguishable and
+    # wrongly reading as a tie -- but are genuinely different scores.
+    body = client.get("/api/layer/hurricane/top?limit=25").json()
+    by_zcta = {z["zcta"]: z["score"] for z in body["zones"]}
+    assert by_zcta["28512"] == pytest.approx(99.84035, abs=1e-5)
+    assert by_zcta["27943"] == pytest.approx(99.83953, abs=1e-5)
+    assert by_zcta["28512"] != by_zcta["27943"]
 
 
 def test_layer_top_zones_tiebreak_is_population_then_zcta():

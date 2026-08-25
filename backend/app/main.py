@@ -174,10 +174,12 @@ def get_layer_top_zones(category: str, limit: int = 3):
                 "county": None if pd.isna(row.county) else row.county,
                 "state": None if pd.isna(row.state) else row.state,
                 "population": int(round(row.population)),
-                # 3dp: the top of a percentile scale is dense enough that
+                # 5dp: the top of a percentile scale is dense enough that
                 # 1dp collapses distinct ZCTAs to an identical "100.0",
-                # which reads as a tie that isn't really there.
-                "score": round(float(getattr(row, score_col)), 3),
+                # which reads as a tie that isn't really there. 3dp still
+                # wasn't enough -- e.g. hurricane has two ZCTAs in its top
+                # 25 that agree to 3 decimals and only separate at the 4th.
+                "score": round(float(getattr(row, score_col)), 5),
             }
             for row in top.itertuples()
         ],

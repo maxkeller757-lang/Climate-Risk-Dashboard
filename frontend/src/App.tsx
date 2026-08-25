@@ -44,10 +44,24 @@ export default function App() {
   const [topLoading, setTopLoading] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
 
+  // Shared by both bottom-right panels (whichever `focus` currently shows)
+  // so a user's collapse choice survives switching between them -- e.g.
+  // collapsing while looking at a layer's top zones, then clicking a
+  // polygon, should not silently re-expand it. Defaults open: landing on
+  // the page should show both the layer control and this panel expanded.
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const togglePanelCollapsed = useCallback(() => setPanelCollapsed((c) => !c), []);
+
   useEffect(() => {
     fetchLayers().then((data) => {
       setLayers(data);
-      setActiveCategory(data[0]?.category ?? null);
+      // Composite is the intended landing view: it's the one score that
+      // summarizes all nine categories, so it's the most useful first
+      // thing to show. Falls back to whatever's first if composite is
+      // ever absent (e.g. the pipeline hasn't computed it yet).
+      const initial =
+        data.find((l) => l.category === "composite")?.category ?? data[0]?.category ?? null;
+      setActiveCategory(initial);
     });
   }, []);
 
@@ -141,10 +155,15 @@ export default function App() {
       />
       <ZipSearch onSearch={handleZipSearch} loading={zipLoading} error={zipError} />
       <Legend layer={activeLayer} />
-      {/* One slot, two panels: whichever the user acted on most recently. */}
+      {/* One slot, two panels: whichever the user acted on most recently.
+          Collapse state is shared and only ever changes from the button
+          inside each panel -- never as a side effect of switching focus,
+          picking a layer, or searching a zip. */}
       {focus === "polygon" ? (
         <DetailPanel
           detail={zipDetail}
+          collapsed={panelCollapsed}
+          onToggleCollapsed={togglePanelCollapsed}
           onClose={() => {
             setZipDetail(null);
             setHighlight(NO_HIGHLIGHT);
@@ -158,6 +177,8 @@ export default function App() {
           data={topZones}
           loading={topLoading}
           error={topError}
+          collapsed={panelCollapsed}
+          onToggleCollapsed={togglePanelCollapsed}
           onSelectZcta={(zcta) => showZcta(zcta, true)}
           onClose={() => setTopZones(null)}
         />
