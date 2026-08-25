@@ -19,12 +19,13 @@ Two properties this must preserve:
 Run: pixi run python pipeline/build_render_geometries.py
 """
 import geopandas as gpd
-from shapely import get_parts, make_valid
+from shapely import get_parts, make_valid, set_precision
 from shapely.ops import unary_union
 
 from config import (
     EQUAL_AREA_CRS,
     MIN_GAP_AREA_M2,
+    NO_ZIP_PREFIX,
     RENDER_SIMPLIFY_TOLERANCE_M,
     WEB_CRS,
     ZCTA_GEOMETRIES_PATH,
@@ -61,6 +62,11 @@ def main():
     if lost > 0:
         print(f"  area lost to cleaning: {lost / 1e6:,.3f} km^2")
 
+    # Kept for the real-ZCTA fallback below -- captured now, while the
+    # index still lines up with `gdf` (nothing drops or reindexes between
+    # here and there).
+    pre_simplify_geometry = gdf.geometry.copy()
+
     print(f"Simplifying {len(gdf)} polygons for render (tolerance={RENDER_SIMPLIFY_TOLERANCE_M}m)...")
     simplified = gdf.geometry.simplify_coverage(
         RENDER_SIMPLIFY_TOLERANCE_M, simplify_boundary=True
@@ -79,15 +85,69 @@ def main():
     # totalling 3,015 m^2 (several of them 0 m^2) survived the earlier
     # filter, then wrote out as empty geometry and tripped the layer
     # verification.
+    #
+    # This can only ever drop gap areas, though. A REAL ZCTA must never
+    # disappear from the map this way: 4 genuine zip codes (81148, 85236,
+    # 16246, 01745 -- each up to ~1 km^2 before simplifying, not
+    # topological noise) hit this exact path and were silently erased,
+    # which is precisely the "hole in the map" failure this file's own
+    # docstring warns about. For those, fall back to the pre-simplification
+    # geometry instead -- same idea as the collapsed/invalid fallback
+    # above, just keyed on size rather than validity.
+    is_gap = gdf["zcta5"].str.startswith(NO_ZIP_PREFIX)
     shrunk = gdf.geometry.area < MIN_GAP_AREA_M2
-    if shrunk.any():
+    shrunk_real = shrunk & ~is_gap
+    if shrunk_real.any():
         print(
-            f"Dropping {int(shrunk.sum())} polygon(s) that simplification shrank below "
-            f"{MIN_GAP_AREA_M2} m^2 ({gdf.loc[shrunk].geometry.area.sum():,.0f} m^2 total)"
+            f"  {int(shrunk_real.sum())} real ZCTA(s) shrank below {MIN_GAP_AREA_M2} m^2 when "
+            "simplified -- keeping pre-simplification geometry instead of dropping"
         )
-        gdf = gdf[~shrunk].reset_index(drop=True)
+        gdf.loc[shrunk_real, "geometry"] = pre_simplify_geometry.loc[shrunk_real]
+
+    shrunk_gap = shrunk & is_gap
+    if shrunk_gap.any():
+        print(
+            f"Dropping {int(shrunk_gap.sum())} gap polygon(s) that simplification shrank below "
+            f"{MIN_GAP_AREA_M2} m^2 ({gdf.loc[shrunk_gap].geometry.area.sum():,.0f} m^2 total)"
+        )
+        gdf = gdf[~shrunk_gap].reset_index(drop=True)
 
     gdf = gdf.to_crs(WEB_CRS)
+
+    # Area in square meters is a proxy, not a guarantee, for surviving the
+    # GeoJSON writer's COORDINATE_PRECISION=5 rounding (~1m grid, applied
+    # here in degrees) -- a long, sufficiently thin sliver can clear
+    # MIN_GAP_AREA_M2 on area alone while still collapsing to nothing once
+    # its vertices snap to that grid. 4 such gap polygons wrote out as
+    # empty geometry and tripped the layer verification even after the
+    # area filter above. set_precision() is used here only to *detect*
+    # that outcome ahead of time, not to transform the kept geometry.
+    #
+    # It is not the safe no-op it looks like, though: run against the full
+    # coverage it raised GEOSException ("unable to assign free hole to a
+    # shell") on a polygon that had nothing to do with the sub-1000m^2
+    # slivers this check exists for. Treat any such failure as "did not
+    # collapse" and move on -- a false negative here just leaves that one
+    # gap polygon in place, exactly the earlier, already-acceptable state;
+    # a false positive would delete real geometry, which is the outcome
+    # this whole check exists to prevent.
+    def _would_collapse(g):
+        try:
+            return set_precision(g, grid_size=1e-5).is_empty
+        except Exception:
+            return False
+
+    # Recomputed fresh against the current gdf, not reused from `is_gap`
+    # above: rows were dropped and reset_index()'d since it was built, so
+    # its index no longer lines up with this one.
+    still_gap = gdf["zcta5"].str.startswith(NO_ZIP_PREFIX)
+    would_collapse = still_gap & gdf.geometry.apply(_would_collapse)
+    if would_collapse.any():
+        print(
+            f"Dropping {int(would_collapse.sum())} gap polygon(s) that would round to empty "
+            "geometry at the writer's coordinate precision"
+        )
+        gdf = gdf[~would_collapse].reset_index(drop=True)
 
     after = _vertex_count(gdf)
     print(f"Vertices: {before:,} -> {after:,} ({100 * after / before:.0f}%)")

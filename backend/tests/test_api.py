@@ -88,12 +88,64 @@ def test_layer_top_zones_shape_and_state():
     assert len(body["zones"]) == 3
     for zone in body["zones"]:
         assert len(zone["zcta"]) == 5 and zone["zcta"].isdigit()
-        # Every polygon carries a state, and the table is useless without it.
+        # Every real ZCTA carries a state, and the table is useless without it.
         assert zone["state"] is not None and len(zone["state"]) == 2
+        assert isinstance(zone["population"], int) and zone["population"] >= 0
         assert 0 <= zone["score"] <= 100
     # Descending by score.
     scores = [z["score"] for z in body["zones"]]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_layer_top_zones_county_present_when_geometry_has_one():
+    # County comes from a dominant-area overlay against Census counties,
+    # same mechanism as the gap-area state attribution -- every real ZCTA
+    # should get one.
+    body = client.get("/api/layer/composite/top?limit=10").json()
+    assert all(z["county"] for z in body["zones"])
+
+
+def test_layer_top_zones_score_precision_distinguishes_near_ties():
+    # 1dp collapsed several distinct top scores to an identical "100.0",
+    # which read as a tie that wasn't real (percentile_rank derives score
+    # from raw via a strictly monotonic map, so equal scores only occur
+    # where the raw metric hits a genuine ceiling). 3dp should separate any
+    # layer where the top few aren't at a literal ceiling.
+    body = client.get("/api/layer/hurricane/top").json()
+    scores = [z["score"] for z in body["zones"]]
+    assert len(set(scores)) == len(scores)
+
+
+def test_layer_top_zones_tiebreak_is_population_then_zcta():
+    # flood has a large genuine tie block (21 ZCTAs at 100% SFHA area) --
+    # exercise the real tiebreak path, not just the common case.
+    #
+    # The API only exposes population rounded to the nearest person, so
+    # two rows can display the same population without actually being tied
+    # on the endpoint's real (unrounded) sort key -- e.g. 1.885 and 1.835
+    # both display as "2". Grouping by the rounded field to check "zcta5
+    # ascending within a population tie" is therefore not a valid check;
+    # it produced a false failure on exactly that case (72377/97432/34487
+    # all round to population 2 but have distinct precise values). Ground
+    # truth for the real tiebreak column has to come from the same source
+    # the endpoint itself sorts on.
+    import geopandas as gpd
+
+    real_pop = gpd.read_parquet(
+        Path(__file__).resolve().parents[2] / "data" / "zcta_geometries_render.parquet"
+    ).set_index("zcta5")["population"]
+
+    body = client.get("/api/layer/flood/top?limit=25").json()
+    tied = [z for z in body["zones"] if z["score"] == body["zones"][0]["score"]]
+    assert len(tied) > 1, "expected a genuine tie block in flood's top scores"
+
+    precise_pops = [real_pop[z["zcta"]] for z in tied]
+    assert precise_pops == sorted(precise_pops, reverse=True)
+    # Within any *exact* population tie (on the real, unrounded value),
+    # zcta5 must be ascending.
+    for pop in set(precise_pops):
+        zctas = [z["zcta"] for z, p in zip(tied, precise_pops) if p == pop]
+        assert zctas == sorted(zctas)
 
 
 def test_layer_top_zones_excludes_gap_areas():

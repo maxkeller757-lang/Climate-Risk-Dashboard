@@ -51,7 +51,9 @@ export async function fetchZipDetail(zip: string): Promise<ZipDetail> {
 
 export interface TopZone {
   zcta: string;
+  county: string | null;
   state: string | null;
+  population: number;
   score: number;
 }
 

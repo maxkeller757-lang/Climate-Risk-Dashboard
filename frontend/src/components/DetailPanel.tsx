@@ -15,7 +15,7 @@ export default function DetailPanel({ detail, onClose }: DetailPanelProps) {
   if (!detail) return null;
 
   return (
-    <div className="absolute bottom-6 right-4 z-10 w-80 rounded-lg bg-white/95 p-4 shadow-lg backdrop-blur">
+    <div className="absolute bottom-6 right-4 z-10 w-96 rounded-lg bg-white/95 p-4 shadow-lg backdrop-blur">
       <div className="mb-2 flex items-start justify-between">
         <div>
           {detail.zip ? (

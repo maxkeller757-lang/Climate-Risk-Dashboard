@@ -26,7 +26,7 @@ export default function TopZonesPanel({
   if (!data && !loading && !error) return null;
 
   return (
-    <div className="absolute bottom-6 right-4 z-10 w-80 rounded-lg bg-white/95 p-4 shadow-lg backdrop-blur">
+    <div className="absolute bottom-6 right-4 z-10 w-96 rounded-lg bg-white/95 p-4 shadow-lg backdrop-blur">
       <div className="mb-2 flex items-start justify-between">
         <div>
           <div className="text-xs font-semibold text-gray-700">
@@ -50,29 +50,41 @@ export default function TopZonesPanel({
             <tr className="text-gray-400">
               <th className="w-6 pb-1 text-left font-medium">#</th>
               <th className="pb-1 text-left font-medium">Zip</th>
-              <th className="pb-1 text-left font-medium">State</th>
+              <th className="pb-1 text-left font-medium">Location</th>
               <th className="pb-1 text-right font-medium">Score</th>
             </tr>
           </thead>
           <tbody>
-            {data.zones.map((z, i) => (
-              <tr key={z.zcta} className="border-t border-gray-100">
-                <td className="py-1.5 text-gray-400">{i + 1}</td>
-                <td className="py-1.5">
-                  <button
-                    onClick={() => onSelectZcta(z.zcta)}
-                    className="font-medium text-gray-800 underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700"
-                    title="Show this zip's full breakdown"
+            {data.zones.map((z, i) => {
+              const location = [z.county, z.state].filter(Boolean).join(", ");
+              return (
+                <tr key={z.zcta} className="border-t border-gray-100">
+                  <td className="py-1.5 text-gray-400">{i + 1}</td>
+                  <td className="py-1.5">
+                    <button
+                      onClick={() => onSelectZcta(z.zcta)}
+                      className="font-medium text-gray-800 underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700"
+                      title="Show this zip's full breakdown"
+                    >
+                      {z.zcta}
+                    </button>
+                  </td>
+                  <td
+                    className="py-1.5 text-gray-600"
+                    title={
+                      z.population > 0
+                        ? `~${z.population.toLocaleString()} people (est.)`
+                        : undefined
+                    }
                   >
-                    {z.zcta}
-                  </button>
-                </td>
-                <td className="py-1.5 text-gray-600">{z.state ?? "—"}</td>
-                <td className="py-1.5 text-right font-medium text-gray-800">
-                  {z.score.toFixed(1)}
-                </td>
-              </tr>
-            ))}
+                    {location || "—"}
+                  </td>
+                  <td className="py-1.5 text-right font-medium text-gray-800">
+                    {z.score.toFixed(3)}
+                  </td>
+                </tr>
+              );
+            })}
             {data.zones.length === 0 && (
               <tr>
                 <td colSpan={4} className="py-2 text-gray-400">

@@ -202,7 +202,7 @@ the user acted on most recently:
 * Selected a **polygon** (map click, zip search, or a row in the table
   below) -> that polygon's full category breakdown.
 * Selected a **layer** -> a table of the three highest-risk zip codes for
-  that layer and the state each is in.
+  that layer, each with its county/state.
 
 The reason for the swap is that the two selections ask different
 questions. Picking a layer asks "where is this hazard worst?", which the
@@ -215,8 +215,29 @@ The table excludes no-ZIP gap areas. They are real land carrying real
 scores, but "the three worst places for wildfire" naming three unnamed
 patches of national forest helps nobody, and on some layers they are
 numerous enough near the top to crowd out every actual zip code.
-Ranking ties are broken on the raw metric, since percentiles saturate at
-the top and several ZCTAs round to 100.0.
+
+**Ranking order**: score descending, ties broken by apportioned population
+descending, then zip ascending. A raw-metric tiebreak was tried first and
+turned out to be dead code: `percentile_rank()` derives score from raw via
+`rank(pct=True)`, a strictly monotonic map, so two rows can never share a
+score while differing in raw -- sorting by `[score, raw]` is identical to
+sorting by `[score]` alone. What looked like ties in the UI (three zips
+all reading "100.0") were never ties at all, just `round(score, 1)`
+collapsing distinct values (e.g. 99.9946 and 99.9917 both round to 100.0)
+-- fixed by showing 3 decimal places in this table specifically.
+
+Real ties do exist, though, wherever the raw metric hits a hard ceiling --
+21 ZCTAs sit at exactly 100% of area in a flood zone, 25 at the air
+quality category's day-count cap. For those, population (areally
+apportioned from county totals the same way `severe_convective.py`
+apportions it for reporting-bias correction) is the tiebreak that means
+something: more people exposed ranks first. Zip code makes whatever's
+left fully deterministic.
+
+Each table row also carries a county name, computed the same way as the
+gap-area state attribution (dominant-area overlay against Census county
+polygons) -- so a result reads as "Miami-Dade County, FL" rather than a
+bare zip code.
 
 ## No-ZIP land areas
 

@@ -1,6 +1,6 @@
 """
 Split no-ZIP gap areas so each sits in one state and is zip-code-scale,
-and record which state every polygon belongs to.
+and record which state, county, and population every real ZCTA has.
 
 Two problems with gap areas as first produced:
 
@@ -12,6 +12,16 @@ Two problems with gap areas as first produced:
   which describes nowhere inside it.
 * They freely straddle state lines, so a gap area can't be attributed to
   a state -- which the "highest-risk zones per layer" table needs.
+
+Real ZCTAs also get a county name and an apportioned population here, for
+that same table: county so a result reads as somewhere recognisable
+rather than a bare zip code, and population so genuine score ties
+(several ZCTAs pinned at the same raw ceiling -- 21 of them at 100%
+floodplain, for instance) break toward the place where the hazard
+affects more people, rather than an arbitrary row order. Population
+apportionment mirrors severe_convective.py's reporting-bias correction:
+county population (Census Population Estimates) spread across ZCTAs by
+intersection-area share of each county.
 
 Three passes, in this order:
 
@@ -49,7 +59,9 @@ from config import (
 )
 from geometry_utils import sanitize_frame
 from sources.census_counties import load_counties
+from sources.census_population import load_county_population
 from sources.nws_zones import FIPS_TO_POSTAL
+from spatial import area_apportioned_sum
 
 # How far out to look for real ZCTAs to seed the tessellation: wide enough
 # to find neighbours around a broad blob, tight enough to keep the seed
@@ -129,6 +141,32 @@ def main():
     dominant = ov.sort_values("a").groupby("zcta5")["state"].last()
     real["state"] = real["zcta5"].map(dominant)
 
+    # Same dominant-area rule, against counties this time -- gives a
+    # human-recognisable place name to go with the state abbreviation.
+    print(f"Attributing {len(real):,} real ZCTAs to counties...")
+    counties = load_counties().to_crs(EQUAL_AREA_CRS)
+    counties["geometry"] = counties["geometry"].apply(make_valid)
+    cov = gpd.overlay(
+        real[["zcta5", "geometry"]],
+        counties[["NAME", "geometry"]],
+        how="intersection",
+        keep_geom_type=True,
+    )
+    cov["a"] = cov.geometry.area
+    dominant_county = cov.sort_values("a").groupby("zcta5")["NAME"].last()
+    real["county"] = real["zcta5"].map(dominant_county)
+
+    # Population, areally apportioned from county totals -- same method
+    # severe_convective.py uses for its reporting-bias correction. Used
+    # here only to break genuine score ties toward the more populous
+    # place; not otherwise part of any hazard score.
+    print("Apportioning county population onto ZCTAs...")
+    population = load_county_population()
+    pop_by_zcta = area_apportioned_sum(real, counties, "GEOID", population)
+    real["population"] = real["zcta5"].map(
+        pop_by_zcta.set_index("zcta5")["value"]
+    ).fillna(0)
+
     # Gap areas: clip to state lines first, then split anything oversized.
     print(f"Splitting {len(gaps):,} gap areas at state lines...")
     inside = gpd.overlay(
@@ -195,10 +233,18 @@ def main():
         crs=EQUAL_AREA_CRS,
     )
     all_gaps["zcta5"] = [f"{NO_ZIP_PREFIX}{i:05d}" for i in range(1, len(all_gaps) + 1)]
+    # Gap areas have no county/population: they're excluded from the
+    # "highest risk" table entirely, and a dominant-county overlay over
+    # ~14k of them would cost real time for a value nothing ever reads.
+    all_gaps["county"] = None
+    all_gaps["population"] = 0.0
 
     out = gpd.GeoDataFrame(
         pd.concat(
-            [real[["zcta5", "state", "geometry"]], all_gaps[["zcta5", "state", "geometry"]]],
+            [
+                real[["zcta5", "state", "county", "population", "geometry"]],
+                all_gaps[["zcta5", "state", "county", "population", "geometry"]],
+            ],
             ignore_index=True,
         ),
         crs=EQUAL_AREA_CRS,

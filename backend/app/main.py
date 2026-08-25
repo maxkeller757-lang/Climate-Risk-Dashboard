@@ -2,7 +2,7 @@
 FastAPI app serving pre-computed hazard scores. No live geoprocessing here
 -- every response reads data the offline pipeline (pipeline/) already wrote.
 
-Run: pixi run uvicorn backend.app.main:app --reload --port 8002
+Run: pixi run uvicorn backend.app.main:app --reload --port 8003
 """
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,7 +125,8 @@ def get_zcta_geometry(zcta5: str):
 
 @app.get("/api/layer/{category}/top")
 def get_layer_top_zones(category: str, limit: int = 3):
-    """Highest-scoring zones for one layer, with the state each sits in.
+    """Highest-scoring zones for one layer, with the county/state and an
+    apportioned population estimate for each.
 
     Shown when the user's most recent action was picking a layer rather
     than a polygon: at that moment the question is "where is this hazard
@@ -136,6 +137,16 @@ def get_layer_top_zones(category: str, limit: int = 3):
     unnamed patches of national forest would be useless to someone
     reading it, and gap areas are numerous enough at the top of some
     layers to crowd out every actual zip code.
+
+    Ordering: score descending, ties broken by population descending, then
+    zcta5 ascending. A raw-metric tiebreak was tried first and turned out
+    to be dead code -- percentile_rank() derives score from raw via
+    rank(pct=True), a strictly monotonic map, so two rows can never share
+    a score while differing in raw. Real ties only occur where the raw
+    metric itself hits a hard ceiling (e.g. 21 ZCTAs at 100% of area in a
+    flood zone), and for those, population is the tiebreak that means
+    something: more people exposed ranks first. zcta5 makes the remainder
+    fully deterministic.
     """
     if category not in LAYERS_BY_CATEGORY:
         raise HTTPException(404, f"Unknown layer category: {category}")
@@ -147,24 +158,26 @@ def get_layer_top_zones(category: str, limit: int = 3):
         raise HTTPException(404, f"Layer '{category}' has not been scored yet.")
 
     real = scores[~scores["zcta5"].str.startswith(NO_ZIP_PREFIX)]
-    states = load_zcta_geometries()[["zcta5", "state"]]
-    merged = real.merge(states, on="zcta5", how="left")
+    attrs = load_zcta_geometries()[["zcta5", "state", "county", "population"]]
+    merged = real.merge(attrs, on="zcta5", how="left")
+    merged["population"] = merged["population"].fillna(0)
 
-    # Tie-break on the raw metric. Percentile scores saturate at the top
-    # -- several ZCTAs round to 100.0 -- so ordering by score alone would
-    # pick arbitrarily among them and could reshuffle between runs. The
-    # raw value still separates them.
-    raw_col = f"{category}_raw"
-    sort_cols = [score_col, raw_col] if raw_col in merged.columns else [score_col]
-    top = merged.sort_values(sort_cols, ascending=False).head(limit)
+    top = merged.sort_values(
+        [score_col, "population", "zcta5"], ascending=[False, False, True]
+    ).head(limit)
     return {
         "category": category,
         "name": LAYERS_BY_CATEGORY[category]["name"],
         "zones": [
             {
                 "zcta": row.zcta5,
+                "county": None if pd.isna(row.county) else row.county,
                 "state": None if pd.isna(row.state) else row.state,
-                "score": round(float(getattr(row, score_col)), 1),
+                "population": int(round(row.population)),
+                # 3dp: the top of a percentile scale is dense enough that
+                # 1dp collapses distinct ZCTAs to an identical "100.0",
+                # which reads as a tie that isn't really there.
+                "score": round(float(getattr(row, score_col)), 3),
             }
             for row in top.itertuples()
         ],
