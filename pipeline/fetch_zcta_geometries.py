@@ -27,7 +27,8 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import requests
-from shapely import make_valid
+from shapely import get_parts, make_valid
+from shapely.ops import unary_union
 
 from config import (
     CENSUS_ZCTA_URL,
@@ -37,6 +38,7 @@ from config import (
     EQUAL_AREA_CRS,
     MIN_GAP_AREA_M2,
     NO_ZIP_PREFIX,
+    SMALL_ZCTA_AREA_M2,
     RAW_DIR,
     WEB_CRS,
     ZCTA_GEOMETRIES_PATH,
@@ -44,6 +46,72 @@ from config import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sources"))
 from census_counties import load_counties  # noqa: E402
+
+
+def _polygonal_only(geom):
+    """Keep just the polygonal parts of a geometry.
+
+    make_valid() repairs a self-intersecting polygon but can hand back a
+    GeometryCollection -- the fixed polygon plus a stray zero-area line or
+    point where the boundary touched itself. Those degenerate bits carry no
+    area and nothing downstream wants them, but simplify_coverage() rejects
+    any non-polygonal input outright, so a single one of these aborts the
+    whole render build.
+    """
+    if geom is None or geom.is_empty or geom.geom_type in ("Polygon", "MultiPolygon"):
+        return geom
+    parts = [g for g in get_parts(geom) if g.geom_type in ("Polygon", "MultiPolygon")]
+    return unary_union(parts) if parts else None
+
+
+def _simplify_preserving_small(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Coverage-simplify, but leave small ZCTAs at full source resolution.
+
+    simplify_coverage takes one global tolerance, and Visvalingam-Whyatt
+    drops any vertex whose effective area falls under it. On a polygon
+    narrower than the tolerance that removes essentially every vertex, so
+    small ZCTAs don't get smoothed, they get destroyed -- at 300m, 10271
+    (Wall Street, ~87m across) collapsed from 6,779 m^2 to 1 m^2. Even at
+    100m the sub-0.5 km^2 band still averaged only 0.876 IoU against the
+    raw source.
+
+    Since the tolerance can't vary per polygon, hold the small ones out of
+    the simplification entirely. Removing them leaves holes in the
+    coverage, and `simplify_boundary=False` preserves the boundary of what
+    remains -- including those holes -- exactly. The untouched small
+    polygons then slot back into holes whose edges still match them
+    vertex-for-vertex, so the result is still a clean coverage with no
+    slivers or overlaps.
+
+    The cost is that this also preserves the CONUS coastline at full
+    resolution, since that's part of the same outer boundary.
+    """
+    if not SMALL_ZCTA_AREA_M2:
+        # Split disabled: simplify everything uniformly, boundary included.
+        print(f"Simplifying {len(gdf):,} polygons as one coverage (tolerance={COVERAGE_SIMPLIFY_TOLERANCE_M}m)...")
+        gdf = gdf.copy()
+        gdf["geometry"] = gdf.geometry.simplify_coverage(
+            COVERAGE_SIMPLIFY_TOLERANCE_M, simplify_boundary=True
+        )
+        return gdf
+
+    area = gdf.geometry.area
+    small = area < SMALL_ZCTA_AREA_M2
+    print(
+        f"Simplifying {int((~small).sum()):,} polygons as one coverage "
+        f"(tolerance={COVERAGE_SIMPLIFY_TOLERANCE_M}m); holding "
+        f"{int(small.sum()):,} polygons under {SMALL_ZCTA_AREA_M2 / 1e6:g} km^2 at full resolution..."
+    )
+
+    large = gdf[~small].copy()
+    large["geometry"] = large.geometry.simplify_coverage(
+        COVERAGE_SIMPLIFY_TOLERANCE_M, simplify_boundary=False
+    )
+
+    out = gpd.GeoDataFrame(
+        pd.concat([large, gdf[small]], ignore_index=True), crs=gdf.crs
+    )
+    return out
 
 
 def download_zcta_shapefile() -> Path:
@@ -143,12 +211,10 @@ def main():
     gdf["geometry"] = gdf["geometry"].apply(
         lambda g: make_valid(g) if g is not None and not g.is_valid else g
     )
+    gdf["geometry"] = gdf["geometry"].apply(_polygonal_only)
     gdf = gdf[~gdf.geometry.is_empty & gdf.geometry.notna()].reset_index(drop=True)
 
-    print(f"Simplifying {len(gdf)} polygons as one coverage (tolerance={COVERAGE_SIMPLIFY_TOLERANCE_M}m)...")
-    gdf["geometry"] = gdf.geometry.simplify_coverage(
-        COVERAGE_SIMPLIFY_TOLERANCE_M, simplify_boundary=True
-    )
+    gdf = _simplify_preserving_small(gdf)
 
     gdf = _fill_gaps(gdf)
 
@@ -162,7 +228,17 @@ def main():
     broken = ~gdf.geometry.is_valid
     if broken.any():
         print(f"Repairing {broken.sum()} invalid geometry/geometries after simplification...")
-        gdf.loc[broken, "geometry"] = gdf.loc[broken, "geometry"].apply(make_valid)
+        gdf.loc[broken, "geometry"] = (
+            gdf.loc[broken, "geometry"].apply(make_valid).apply(_polygonal_only)
+        )
+
+    non_polygonal = ~gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+    if non_polygonal.any():
+        raise RuntimeError(
+            f"{non_polygonal.sum()} geometry/geometries are not polygonal "
+            f"(e.g. {gdf.loc[non_polygonal, 'zcta5'].head(5).tolist()}). "
+            "simplify_coverage() rejects these, so the render build would fail."
+        )
 
     dropped = gdf[gdf.geometry.is_empty | gdf.geometry.isna() | ~gdf.geometry.is_valid]
     if len(dropped):

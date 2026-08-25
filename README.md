@@ -264,4 +264,21 @@ regardless of viewport aspect ratio.
 
 ## Open items
 
+- **Validate the storm severity weighting.** `severity_weight()` in
+  `pipeline/sources/ncei_storm_events.py` is a hand-rolled heuristic --
+  EF-scale for tornadoes, magnitude for hail and wind, deaths and injuries
+  as a proxy for winter events, since NCEI leaves MAGNITUDE unpopulated
+  for those. It has never been checked against the severe-weather
+  literature, and it drives Severe Convective and Winter Weather outright.
+  Deliberately deferred, not overlooked.
+- **Small-ZCTA fidelity is improved but not perfect.** At a 25m
+  simplification tolerance the sub-0.5 km^2 band still doesn't match the
+  raw source exactly; a handful of single-building urban ZCTAs (10271 on
+  Wall Street is ~87m across) remain the hardest cases. Their flood score,
+  being share-of-area, is the most sensitive to it.
+- **Air Quality covers 2015-2021**, everything else 2015-2024 -- the CDC
+  source ends 31 Oct 2022 and a partial year would undercount. The
+  composite therefore blends a 7-year and a 10-year climatology.
 - Deployment target (live hosting vs. local/demo-video) -- not yet decided.
+- Vector tiles (MVT/PMTiles) are the next real performance step, now that
+  gzip has taken the cheap win.

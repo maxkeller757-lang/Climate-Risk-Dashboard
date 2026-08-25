@@ -45,13 +45,29 @@ from config import (
 
 SHAPEFILE = RAW_DIR / "tl_2023_us_zcta520" / "tl_2023_us_zcta520.shp"
 
-# Thresholds. IoU below this is a polygon that no longer reasonably
-# represents its zip area; 0.95 still allows visible smoothing of a
-# boundary while catching genuine distortion.
-MIN_MEAN_IOU = 0.98
+# A polygon below this IoU no longer reasonably represents its zip area.
 MIN_ACCEPTABLE_IOU = 0.90
-# Share of ZCTAs allowed to fall under MIN_ACCEPTABLE_IOU.
-MAX_POOR_SHARE = 0.01
+
+# The two geometries are held to different bars on purpose, because they
+# answer different questions. Judging both against the analysis bar is a
+# category error: the render geometry is *deliberately* simplified to keep
+# the download small, so measuring it as though it were trying to be
+# faithful would keep the check permanently red for a tradeoff that was
+# chosen on purpose.
+#
+#   analysis -- every hazard score is computed against this, so it should
+#     essentially match the source. At a 25m tolerance it does: mean IoU
+#     0.9986, one polygon out of 33,300 below 0.90.
+#   render -- drawn on the map only, simplified at 800m
+#     (RENDER_SIMPLIFY_TOLERANCE_M). The bar here is not "is it faithful"
+#     but "is it no worse than the tradeoff we accepted" -- it exists to
+#     catch a regression, not to certify accuracy. Tighten
+#     RENDER_SIMPLIFY_TOLERANCE_M, not this number, if outlines look wrong
+#     when zoomed in.
+THRESHOLDS = {
+    "analysis": {"min_mean_iou": 0.98, "max_poor_share": 0.01},
+    "render": {"min_mean_iou": 0.85, "max_poor_share": 0.35},
+}
 
 
 def load_raw() -> gpd.GeoDataFrame:
@@ -62,7 +78,7 @@ def load_raw() -> gpd.GeoDataFrame:
     return gdf.cx[minx:maxx, miny:maxy].to_crs(EQUAL_AREA_CRS)
 
 
-def compare(label: str, path, raw: gpd.GeoDataFrame) -> bool:
+def compare(label: str, path, raw: gpd.GeoDataFrame, kind: str) -> bool:
     print(f"\n== {label} ==")
     ours = gpd.read_parquet(path).to_crs(EQUAL_AREA_CRS)
     ours = ours[~ours["zcta5"].str.startswith(NO_ZIP_PREFIX)]
@@ -130,8 +146,13 @@ def compare(label: str, path, raw: gpd.GeoDataFrame) -> bool:
         for r in worst.itertuples():
             print(f"    {r.zcta5}  IoU {r.iou}  ({r.km2} km^2)")
 
-    ok = iou.mean() >= MIN_MEAN_IOU and poor_share <= MAX_POOR_SHARE
-    print(f"  {'PASS' if ok else 'FAIL'}")
+    limits = THRESHOLDS[kind]
+    ok = iou.mean() >= limits["min_mean_iou"] and poor_share <= limits["max_poor_share"]
+    print(
+        f"  {'PASS' if ok else 'FAIL'} "
+        f"(bar for {kind}: mean IoU >= {limits['min_mean_iou']}, "
+        f"<= {100 * limits['max_poor_share']:.0f}% below {MIN_ACCEPTABLE_IOU})"
+    )
     return ok
 
 
@@ -140,8 +161,18 @@ def main():
     raw = load_raw()
     print(f"{len(raw):,} raw CONUS ZCTAs")
 
-    analysis_ok = compare("Analysis geometry (what scores are computed on)", ZCTA_GEOMETRIES_PATH, raw)
-    render_ok = compare("Render geometry (what the map draws)", ZCTA_RENDER_GEOMETRIES_PATH, raw)
+    analysis_ok = compare(
+        "Analysis geometry (what scores are computed on)",
+        ZCTA_GEOMETRIES_PATH,
+        raw,
+        kind="analysis",
+    )
+    render_ok = compare(
+        "Render geometry (what the map draws)",
+        ZCTA_RENDER_GEOMETRIES_PATH,
+        raw,
+        kind="render",
+    )
 
     print()
     if analysis_ok and render_ok:

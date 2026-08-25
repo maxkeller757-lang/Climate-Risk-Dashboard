@@ -90,20 +90,31 @@ def _write_raster(path, data, lat, lon):
 def main():
     zcta = gpd.read_parquet(ZCTA_GEOMETRIES_PATH)
 
-    temp_sum, hi_sum = None, None
-    grid_info = {"lat": None, "lon": None}
-    for year in range(START_YEAR, END_YEAR + 1):
-        print(f"Processing gridMET {year}...")
-        temp_sum, hi_sum = _accumulate_year(year, temp_sum, hi_sum, grid_info)
+    # These two rasters are a pure function of the gridMET files, the
+    # thresholds and the year range -- nothing about ZCTA geometry enters
+    # into them. Only the zonal-stats step below depends on the polygons.
+    # So a geometry change should not force a rebuild: re-deriving them
+    # means a day-by-day pass over ~7,300 netCDF slices, which on a
+    # machine short of free RAM and disk becomes I/O-bound and can run for
+    # many hours. Every parameter that affects the contents is encoded in
+    # the filename, so changing a threshold or the window invalidates the
+    # cache automatically instead of silently reusing stale rasters.
+    stem = f"{START_YEAR}_{END_YEAR}"
+    temp_path = RAW_DIR / f"heat_days_over_{TEMP_THRESHOLD_F:.0f}f_{stem}.tif"
+    hi_path = RAW_DIR / f"heat_index_days_over_{HEAT_INDEX_THRESHOLD_F:.0f}f_{stem}.tif"
 
-    n_years = END_YEAR - START_YEAR + 1
-    avg_temp_days = temp_sum / n_years
-    avg_hi_days = hi_sum / n_years
+    if temp_path.exists() and hi_path.exists():
+        print(f"Reusing cached heat rasters ({temp_path.name}, {hi_path.name})")
+    else:
+        temp_sum, hi_sum = None, None
+        grid_info = {"lat": None, "lon": None}
+        for year in range(START_YEAR, END_YEAR + 1):
+            print(f"Processing gridMET {year}...")
+            temp_sum, hi_sum = _accumulate_year(year, temp_sum, hi_sum, grid_info)
 
-    temp_path = RAW_DIR / "heat_days_over_90f.tif"
-    hi_path = RAW_DIR / "heat_index_days_over_100f.tif"
-    _write_raster(temp_path, avg_temp_days, grid_info["lat"], grid_info["lon"])
-    _write_raster(hi_path, avg_hi_days, grid_info["lat"], grid_info["lon"])
+        n_years = END_YEAR - START_YEAR + 1
+        _write_raster(temp_path, temp_sum / n_years, grid_info["lat"], grid_info["lon"])
+        _write_raster(hi_path, hi_sum / n_years, grid_info["lat"], grid_info["lon"])
 
     print("Computing zonal means...")
     temp_zonal = raster_zonal_mean(zcta, str(temp_path)).rename(columns={"mean": "avg_days_90f"})

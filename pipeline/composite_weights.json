@@ -4,6 +4,10 @@
     "_comment": "Composite is a weighted power mean (Holder mean) with this exponent, not a plain weighted average -- see composite.py. p=1 would be a plain average; higher p makes categories that are ALREADY high contribute disproportionately more, so a place with several categories in the 90s scores much higher than a place with the same average made up of uniformly-moderate scores. p=3 was chosen empirically: it visibly fixes the 'Miami Beach scores ~23 despite Flood=99/Hurricane=96' problem from v1 without letting a single maxed-out category alone dominate the score (one category at 100 with everything else at 0 still only yields ~53, not ~100).",
     "value": 3
   },
+  "_score_coefficients": {
+    "_comment": "Multiplied into a category's score before it enters the composite, to correct for a score that is not on the same scale as the others. Hurricane is the only such case: its percentile gets an S-curve contrast stretch (see hurricane.py) so the map reads as sharply coastal, which means hurricane_score is no longer a plain percentile the way every other category's is. Its inflated high end then gets amplified again by the composite's p=3 power mean, effectively over-weighting hurricane at the top beyond its declared 0.15. The stretch is kept because it makes the layer itself more truthful to how hurricane risk presents; this coefficient just removes the unintended second helping in the composite. 0.9 is a judgement call, not a derived constant -- the stretch lifts scores near the 90th percentile by roughly ten points, and 0.9 gives most of that back. Applies to the composite only; the layer and the detail panel still show the full stretched score.",
+    "hurricane": 0.9
+  },
   "severe_convective": 0.15,
   "flood": 0.15,
   "wildfire": 0.15,

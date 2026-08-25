@@ -84,12 +84,13 @@ def main():
     probe_geom = probe.set_index("zcta5").geometry  # already buffered once
     real_geom = real.set_index("zcta5").geometry
     matched = pairs.dropna(subset=["neighbor"]).copy()
-    matched["weight"] = shapely.area(
-        shapely.intersection(
-            probe_geom.loc[matched["zcta5"]].to_numpy(),
-            real_geom.loc[matched["neighbor"]].to_numpy(),
-        )
-    )
+
+    # make_valid both operands: buffering a gap polygon can yield a ring
+    # that self-touches, and GEOS aborts the whole intersection with
+    # "side location conflict" rather than failing just that pair.
+    left = shapely.make_valid(probe_geom.loc[matched["zcta5"]].to_numpy())
+    right = shapely.make_valid(real_geom.loc[matched["neighbor"]].to_numpy())
+    matched["weight"] = shapely.area(shapely.intersection(left, right))
     matched = matched[matched["weight"] > 0]
 
     real_scores = real.set_index("zcta5")[score_cols]

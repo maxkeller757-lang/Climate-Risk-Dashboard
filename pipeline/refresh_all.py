@@ -22,6 +22,7 @@ import heat
 import hurricane
 import seismic
 import severe_convective
+import subdivide_large_gaps
 import verify_layers
 import wildfire
 import winter_weather
@@ -47,6 +48,12 @@ CATEGORY_STEPS = [
 def main():
     print("\n=== ZCTA geometries ===")
     fetch_zcta_geometries()
+
+    # Must run before the render build and before any scoring: it splits
+    # gap areas at state lines and by size, changing both the polygon set
+    # and the NOZIP ids everything downstream is keyed on.
+    print("\n=== Subdivide oversized gap areas ===")
+    subdivide_large_gaps.main()
 
     print("\n=== Render geometries ===")
     build_render_geometries.main()

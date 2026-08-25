@@ -14,6 +14,7 @@ import pandas as pd
 
 from config import (
     LAYERS_DIR,
+    NO_ZIP_PREFIX,
     ZCTA_GEOMETRIES_PATH,
     ZCTA_RENDER_GEOMETRIES_PATH,
     ZIP_SCORES_PATH,
@@ -40,10 +41,50 @@ def _replace_with_retry(src: Path, dst: Path, attempts: int = 6, delay_s: float 
 
 
 def percentile_rank(df: pd.DataFrame, raw_col: str, score_col: str = "score") -> pd.DataFrame:
-    """0-100 percentile rank of raw_col across all rows (all CONUS ZCTAs),
-    so every category lands on the same comparable scale."""
+    """0-100 percentile rank of raw_col, ranked against real ZCTAs only.
+
+    The reference population is deliberately *not* every row. Roughly 15%
+    of polygons are NOZIP-* gap areas -- marsh, barrier islands,
+    unaddressed land -- and ranking against those makes a score mean
+    "higher than N% of polygons, including uninhabited marsh" when the UI
+    presents it as a comparison between zip codes. It also biases whole
+    categories: coastal marsh scores high on flood and hurricane, so
+    including it pushes real coastal ZCTAs' percentiles down.
+
+    Gap areas still get a score, and still a meaningful one -- they have
+    real computed raw values, so they're placed by where that value falls
+    within the real-ZCTA distribution. They just don't get a vote in
+    defining it.
+    """
     df = df.copy()
-    df[score_col] = df[raw_col].rank(pct=True) * 100
+
+    if "zcta5" not in df.columns:
+        raise KeyError(
+            "percentile_rank needs a zcta5 column to separate real ZCTAs from "
+            "NOZIP-* gap areas."
+        )
+
+    is_gap = df["zcta5"].astype(str).str.startswith(NO_ZIP_PREFIX)
+    real_values = df.loc[~is_gap, raw_col]
+    if real_values.empty:
+        raise ValueError("No real ZCTAs to rank against.")
+
+    scores = pd.Series(np.nan, index=df.index, dtype="float64")
+    # Real ZCTAs: ordinary percentile rank within their own population.
+    scores.loc[~is_gap] = real_values.rank(pct=True) * 100
+
+    # Gap areas: where each value would sit in that same distribution.
+    # searchsorted on both sides and averaging mirrors pandas' "average"
+    # tie handling, so a gap area tied with real ZCTAs lands at the same
+    # percentile they do rather than at the edge of the tie block.
+    if is_gap.any():
+        ref = np.sort(real_values.to_numpy())
+        gap_values = df.loc[is_gap, raw_col].to_numpy()
+        left = np.searchsorted(ref, gap_values, side="left")
+        right = np.searchsorted(ref, gap_values, side="right")
+        scores.loc[is_gap] = ((left + right) / 2.0) / len(ref) * 100
+
+    df[score_col] = scores
     return df
 
 

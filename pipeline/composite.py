@@ -41,9 +41,23 @@ def main():
             "Run each category's pipeline module before pipeline/composite.py."
         )
 
+    # Per-category multipliers applied before blending, for scores that
+    # aren't on the same scale as the rest (see the config's comment).
+    coefficients = {
+        k: v
+        for k, v in config.get("_score_coefficients", {}).items()
+        if not k.startswith("_")
+    }
+    unknown = set(coefficients) - set(weights)
+    if unknown:
+        raise RuntimeError(f"_score_coefficients names unknown categories: {sorted(unknown)}")
+    if coefficients:
+        print(f"Applying score coefficients: {coefficients}")
+
     total_weight = sum(weights.values())
     weighted_power_sum = sum(
-        table[f"{cat}_score"].fillna(0) ** exponent * w for cat, w in weights.items()
+        (table[f"{cat}_score"].fillna(0) * coefficients.get(cat, 1.0)) ** exponent * w
+        for cat, w in weights.items()
     )
     composite_raw = (weighted_power_sum / total_weight) ** (1.0 / exponent)
     table["composite_raw"] = composite_raw

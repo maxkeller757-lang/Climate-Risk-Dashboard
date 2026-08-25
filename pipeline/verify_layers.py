@@ -27,6 +27,7 @@ from config import (
     NO_ZIP_PREFIX,
     ZCTA_RENDER_GEOMETRIES_PATH,
 )
+from geometry_utils import sanitize_frame
 from sources.census_counties import load_counties
 
 # Coverage tolerance. The ZCTA layer and the county cartographic layer are
@@ -39,13 +40,22 @@ from sources.census_counties import load_counties
 # dominated by legitimate noise.
 MAX_UNCOVERED_PIECE_KM2 = 25
 
+# Coordinate snapping (meters) for the big union operations -- see
+# check_land_coverage().
+GRID_SIZE_M = 0.01
+
 
 def check_land_coverage() -> bool:
     print("== CONUS land coverage ==")
     geo = gpd.read_parquet(ZCTA_RENDER_GEOMETRIES_PATH).to_crs(EQUAL_AREA_CRS)
-    land = load_counties().to_crs(EQUAL_AREA_CRS).union_all()
+    geo = sanitize_frame(geo, label="  ")
+    land = load_counties().to_crs(EQUAL_AREA_CRS).union_all(grid_size=GRID_SIZE_M)
 
-    covered = geo.union_all()
+    # grid_size snaps coordinates before the union. Unioning ~47k polygons
+    # whose shared edges agree only to floating-point precision otherwise
+    # raises "side location conflict" -- 1cm is far below any tolerance
+    # that matters here and makes the operation deterministic.
+    covered = geo.union_all(grid_size=GRID_SIZE_M)
     uncovered = land.difference(covered)
     uncovered_km2 = uncovered.area / 1e6
     land_km2 = land.area / 1e6

@@ -31,7 +31,8 @@ const ROWS: Row[] = [
   {
     name: "Hurricane / Tropical",
     source: "NOAA NHC HURDAT2 best-track database, 2015-2024",
-    method: "Wind-speed-squared-weighted exposure from track point proximity, 150mi linear decay.",
+    method:
+      "Wind-speed-squared-weighted exposure from track point proximity, 150mi linear decay. The resulting percentile then gets an S-curve contrast stretch, pushing coastal areas higher and interior areas lower so the layer reflects how sharply hurricane risk falls off inland. That makes this the one score that is not a plain percentile, which is why the composite scales it back down (see Composite).",
   },
   {
     name: "Drought",
@@ -60,7 +61,7 @@ const ROWS: Row[] = [
     name: "Composite",
     source: "Derived",
     method:
-      "Weighted power-mean (exponent 3) of the 8 category percentiles, not a plain average -- categories that are already high contribute disproportionately more, so places with several compounding hazards (e.g. flood + hurricane) score noticeably higher than a plain average would. Drought and Seismic carry a lighter weight (5% each vs. 15%): Drought overlaps heavily with Wildfire/Heat's own signal, and Seismic is a comparatively rare, localized threat nationally. See composite_weights.json.",
+      "Weighted power-mean (exponent 3) of the 9 category percentiles, not a plain average -- categories that are already high contribute disproportionately more, so places with several compounding hazards (e.g. flood + hurricane) score noticeably higher than a plain average would. Drought, Seismic and Air Quality carry a lighter weight (5% each vs. 15%): Drought overlaps heavily with Wildfire/Heat's own signal, Seismic is a comparatively rare and localized threat nationally, and Air Quality is chronic exposure rather than acute-event risk. Hurricane is additionally scaled by 0.9 here, because its contrast stretch (see above) leaves it on a different scale from the other percentiles and the power-mean would otherwise amplify that a second time -- the layer itself still shows the full stretched score. See composite_weights.json.",
   },
 ];
 

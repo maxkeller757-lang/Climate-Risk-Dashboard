@@ -35,11 +35,39 @@ WEB_CRS = "EPSG:4326"
 # applied via GeoSeries.simplify_coverage() -- a topology-aware
 # simplification that keeps shared ZCTA-to-ZCTA edges identical, avoiding
 # the slivers/overlaps a naive per-polygon .simplify() introduces at every
-# shared boundary. tippecanoe is not available in this environment (Windows
-# dev box, no prebuilt binary), so layers ship as simplified GeoJSON rather
-# than vector tiles. Revisit if initial map load / layer-switch performance
-# is unacceptable (see Phase 8).
-COVERAGE_SIMPLIFY_TOLERANCE_M = 300
+# shared boundary.
+#
+# This is the geometry every hazard score is computed against, so the
+# tolerance has to stay well below the size of the smallest ZCTA. It was
+# 300m, which is wider than a single-building urban ZCTA is across: 10271
+# (Wall Street, ~87m across) collapsed from 6,779 m^2 to 1 m^2, and ZCTAs
+# under 0.5 km^2 kept a median of just 68% of their area. Those polygons
+# weren't smoothed, they were destroyed, and their scores -- flood
+# especially, being a share-of-area metric -- were computed on the wreckage.
+# See pipeline/verify_zcta_fidelity.py, which measures this against the raw
+# Census source.
+#
+# Measured tradeoff (vertices as a share of the raw 50.0M, and the median
+# area retained by sub-0.5 km^2 ZCTAs):
+#   300m -> 2.0M (4.0%), 68.0% area kept   <- original value, broken
+#   100m -> 4.6M (9.2%), 98.6% area kept
+#    50m -> 7.7M (15.3%), 99.8% area kept
+#    25m -> 12.5M (25.0%), 99.9% area kept  <- current
+#
+# 25m was chosen over the alternative of holding small ZCTAs out of the
+# simplification entirely (see SMALL_ZCTA_AREA_M2). That alternative was
+# built and measured: it came to 13.81M vertices against 13.76M for a
+# uniform 25m pass -- no cheaper, because preserving the small polygons'
+# edges also means preserving the whole CONUS coastline at raw resolution,
+# and that coastline detail buys no analytical accuracy. Uniform 25m costs
+# the same, needs one code path instead of two, carries no risk of slivers
+# where preserved and simplified polygons meet, and is strictly more
+# faithful on large ZCTAs (25m rather than 100m).
+#
+# Note this does NOT drive the size of what the browser downloads --
+# RENDER_SIMPLIFY_TOLERANCE_M below governs that independently, so
+# changing this costs pipeline compute time, not page load time.
+COVERAGE_SIMPLIFY_TOLERANCE_M = 25
 
 # Render-only simplification (meters), applied on top of the above by
 # build_render_geometries.py to produce the map's polygons. At CONUS zoom
@@ -80,3 +108,26 @@ NO_ZIP_PREFIX = "NOZIP-"
 # survive the GeoJSON writer's coordinate rounding, collapsing to empty
 # geometry and tripping the "hole in the map" check for no reason.
 MIN_GAP_AREA_M2 = 1000
+
+# ZCTAs below this area are held out of coverage simplification entirely
+# and kept at full source resolution (see
+# fetch_zcta_geometries._simplify_preserving_small()).
+#
+# Disabled -- set to 0 -- because it turned out not to be worth it. The
+# mechanism works, but at 2 km^2 it produced 13.81M vertices against
+# 13.76M for simply running the whole coverage at 25m: preserving the
+# small polygons' edges requires simplify_boundary=False, which also
+# pins the entire CONUS coastline at raw resolution. Same cost, more
+# moving parts. Kept because it becomes worthwhile again if
+# COVERAGE_SIMPLIFY_TOLERANCE_M is ever raised back toward 100m+, where
+# small ZCTAs start being destroyed and the coastline penalty is the
+# lesser evil.
+SMALL_ZCTA_AREA_M2 = 0
+
+# Oversized no-ZIP gap areas get subdivided until every piece is under
+# this many times the median real ZCTA area. TIGER leaves large tracts of
+# public land unassigned, and they merge into single enormous blobs -- one
+# reached 239,912 km^2, larger than Wyoming. A single hazard score
+# averaged over that is meaningless, so they're split into pieces of
+# roughly zip-code scale. See subdivide_large_gaps.py.
+MAX_GAP_AREA_MEDIAN_MULTIPLE = 5
