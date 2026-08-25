@@ -245,15 +245,31 @@ bare zip code.
 
 Not all CONUS land has a ZIP code -- tidal marsh, barrier islands, and
 unaddressed parcels have no ZCTA5, and Census only assigns ZCTAs where
-mail is delivered. Those areas get their own `NOZIP-#####` polygons
-(deliberately not 5 digits, so they can never be confused with or searched
-as a real ZIP). They are real geometry, so the category modules score them
-directly like any other polygon -- a marsh island off Charleston gets its
-own hurricane and flood exposure computed, not a placeholder.
-`fill_nozip_scores.py` runs afterwards purely as a safety net, filling any
-polygon a category legitimately had no data for (raster sources such as
-WHP have no value over open water) from a shared-boundary-weighted mean of
-its neighbours.
+mail is delivered. Those areas get their own `NOZIP-{hash}` polygons
+(never 5 digits, so they can never be confused with or searched as a real
+ZIP -- the hash is a content-derived id, not a serial number; see
+`subdivide_large_gaps._stable_gap_ids()` for why it has to be deterministic
+from geometry rather than assigned by row order). They are real geometry,
+so the category modules score them directly like any other polygon -- a
+marsh island off Charleston gets its own hurricane and flood exposure
+computed, not a placeholder. `fill_nozip_scores.py` runs afterwards purely
+as a safety net, filling any polygon a category legitimately had no data
+for (raster sources such as WHP have no value over open water) from a
+shared-boundary-weighted mean of its neighbours.
+
+Gap polygons are also clipped against open water for display
+(`clip_gap_water.py`, Natural Earth 10m ocean + lakes) -- the land mask
+they're derived from comes from Census county boundaries, not the
+basemap's own OSM-derived coastline, so without this a gap area could
+render as land-colored fill sitting on visible water. This is render-only:
+it edits `zcta_geometries_render.parquet` after
+`build_render_geometries.py`, never the analysis geometry a score is
+computed against, and a gap polygon keeps its original id even where
+clipping reshapes it into a MultiPolygon. A polygon left under
+`WATER_CLIP_SLIVER_AREA_M2` (0.05 km^2, chosen against this project's own
+"a ZCTA is a few pixels wide at CONUS zoom" render-visibility logic) is
+dropped rather than kept as an unrenderable remnant. Real ZCTAs are never
+touched by this step.
 
 ## Map rendering
 

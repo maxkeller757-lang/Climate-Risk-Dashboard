@@ -131,3 +131,18 @@ SMALL_ZCTA_AREA_M2 = 0
 # averaged over that is meaningless, so they're split into pieces of
 # roughly zip-code scale. See subdivide_large_gaps.py.
 MAX_GAP_AREA_MEDIAN_MULTIPLE = 5
+
+# After clipping no-ZIP gap areas against open water (see
+# clip_gap_water.py), a gap polygon whose remaining land area falls below
+# this is dropped rather than kept as a tiny remnant. This is a
+# render-only cleanup -- it runs on zcta_geometries_render.parquet, not
+# the analysis geometry, so it never touches a hazard score.
+#
+# 0.05 km^2 (500m x 100m, roughly) was chosen against the project's own
+# render-visibility logic: at CONUS zoom a ZCTA is "a few pixels wide"
+# (see RENDER_SIMPLIFY_TOLERANCE_M above), so anything under this scale
+# is at or below single-pixel size and not worth rendering as its own
+# shape. This is deliberately much larger than MIN_GAP_AREA_M2 (1,000
+# m^2), which exists only to catch near-zero topological noise, not to
+# make a visual-scale judgement.
+WATER_CLIP_SLIVER_AREA_M2 = 50_000

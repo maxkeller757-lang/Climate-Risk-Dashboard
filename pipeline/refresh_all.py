@@ -14,6 +14,7 @@ import os
 import air_quality
 import build_render_geometries
 import build_zip_crosswalk
+import clip_gap_water
 import composite
 import drought
 import fill_nozip_scores
@@ -57,6 +58,12 @@ def main():
 
     print("\n=== Render geometries ===")
     build_render_geometries.main()
+
+    # Render-only cosmetic fix: trims no-ZIP gap areas that overlap open
+    # water on the basemap. Must run after the render build (it edits that
+    # file directly) and never touches analysis geometry or scores.
+    print("\n=== Clip gap areas against water ===")
+    clip_gap_water.main()
 
     print("\n=== ZIP -> ZCTA crosswalk ===")
     build_zip_crosswalk.main()

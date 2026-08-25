@@ -25,10 +25,12 @@ from config import (
     EQUAL_AREA_CRS,
     LAYERS_DIR,
     NO_ZIP_PREFIX,
+    WEB_CRS,
     ZCTA_RENDER_GEOMETRIES_PATH,
 )
 from geometry_utils import sanitize_frame
 from sources.census_counties import load_counties
+from sources.natural_earth_water import load_water_union
 
 # Coverage tolerance. The ZCTA layer and the county cartographic layer are
 # generalised at different scales, so their coastlines never agree exactly
@@ -50,6 +52,17 @@ def check_land_coverage() -> bool:
     geo = gpd.read_parquet(ZCTA_RENDER_GEOMETRIES_PATH).to_crs(EQUAL_AREA_CRS)
     geo = sanitize_frame(geo, label="  ")
     land = load_counties().to_crs(EQUAL_AREA_CRS).union_all(grid_size=GRID_SIZE_M)
+
+    # Subtract the same water layer clip_gap_water.py clips gap areas
+    # against. Census county polygons don't exclude their own inland
+    # lakes -- Great Salt Lake, Okeechobee, Pontchartrain are all still
+    # "county land" as far as this land mask is concerned -- but the
+    # render geometry now correctly excludes them. Comparing against the
+    # unmodified land mask after that made every major lake register as a
+    # multi-hundred-km^2 "hole", which is the clip working as intended,
+    # not a coverage regression.
+    water = gpd.GeoSeries([load_water_union()], crs=WEB_CRS).to_crs(EQUAL_AREA_CRS).iloc[0]
+    land = land.difference(water)
 
     # grid_size snaps coordinates before the union. Unioning ~47k polygons
     # whose shared edges agree only to floating-point precision otherwise
