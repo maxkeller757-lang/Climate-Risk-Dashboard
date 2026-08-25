@@ -43,6 +43,8 @@ area.
 Run: pixi run python pipeline/subdivide_large_gaps.py
   (after fetch_zcta_geometries.py, before build_render_geometries.py)
 """
+import hashlib
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -116,6 +118,52 @@ def _split_by_proximity(geom, seeds: np.ndarray, max_area: float):
             if p.geom_type in ("Polygon", "MultiPolygon") and p.area > MIN_GAP_AREA_M2:
                 pieces.extend(_bisect(p, max_area))
     return pieces or _bisect(geom, max_area)
+
+
+def _stable_gap_ids(geometries) -> list:
+    """Deterministic NOZIP-* ids, derived from each polygon's own geometry
+    rather than its row position in this run.
+
+    Sequential numbering (NOZIP-00001, NOZIP-00002, ...) looked stable but
+    wasn't: rerunning this script rebuilds the whole gap-area set from
+    scratch, and nothing guarantees polygon #4534 lands in the same row on
+    two different runs -- GEOS intersection/Voronoi output order, sort
+    tie-breaking, and the marsh-reattachment sjoin_nearest step can all
+    reorder it. Every category script upserts its score into
+    zip_scores.parquet keyed on this string id via an OUTER JOIN, so a
+    reordering doesn't leave the new polygon unscored (which would at
+    least get caught by fill_nozip_scores.py) -- it silently reattaches an
+    OLD score computed for a completely different, unrelated polygon.
+    Confirmed happening in production: interior-Oregon gap areas were
+    showing hurricane scores near 100, and gap areas in south TX/FL/LA
+    were showing seismic scores far too high, in both cases because they'd
+    inherited another gap polygon's score from an earlier subdivide run.
+
+    Deriving the id from geometry instead fixes this at the root: the same
+    physical polygon gets the same id every run, so its score stays
+    validly attached across reruns, and only a polygon that's genuinely
+    new or changed shape gets a new id -- which correctly leaves it
+    unscored until the category scripts run again, rather than wrongly
+    inheriting someone else's number.
+    """
+    ids = []
+    seen: dict = {}
+    for geom in geometries:
+        c = geom.centroid
+        # Round to the nearest meter -- far finer than needed to
+        # distinguish two real gap polygons, coarse enough to absorb the
+        # sub-meter floating-point jitter repeated GEOS operations can
+        # introduce run to run for what is "the same" polygon.
+        key = f"{round(c.x)}_{round(c.y)}_{round(geom.area)}"
+        digest = hashlib.sha1(key.encode()).hexdigest()[:10]
+        # A genuine collision (two distinct polygons hashing the same) is
+        # astronomically unlikely at this precision, but guard it anyway
+        # rather than silently merging two different pieces of land onto
+        # one id.
+        n = seen.get(digest, 0)
+        seen[digest] = n + 1
+        ids.append(f"{NO_ZIP_PREFIX}{digest}" + (f"-{n}" if n else ""))
+    return ids
 
 
 def main():
@@ -232,7 +280,7 @@ def main():
         pd.concat([keep[["state", "geometry"]], split], ignore_index=True),
         crs=EQUAL_AREA_CRS,
     )
-    all_gaps["zcta5"] = [f"{NO_ZIP_PREFIX}{i:05d}" for i in range(1, len(all_gaps) + 1)]
+    all_gaps["zcta5"] = _stable_gap_ids(all_gaps.geometry)
     # Gap areas have no county/population: they're excluded from the
     # "highest risk" table entirely, and a dominant-county overlay over
     # ~14k of them would cost real time for a value nothing ever reads.
