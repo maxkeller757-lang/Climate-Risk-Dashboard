@@ -10,12 +10,21 @@ would undercount. Seven whole years is still a stable climatology for a
 metric this noisy year-to-year (wildfire smoke drives big single-year
 swings).
 
+County granularity note: this raw metric is bucketed by county, not a
+continuous field, and is heavily zero-inflated (most ZCTAs average under
+a day a year above the threshold) -- so percentile_rank() is very
+sensitive right at that mass of zeros, and a single county-line difference
+can swing a score 60+ points. Since county lines often run along or near
+state lines, that reads visually as "the map breaks at the state line"
+even though it isn't a join or area-weighting bug (verified directly).
+Smoothed with neighbours before ranking; see scoring.spatial_smooth.
+
 Run: pixi run python pipeline/air_quality.py
 """
 import geopandas as gpd
 
 from config import ZCTA_GEOMETRIES_PATH
-from scoring import percentile_rank, upsert_zip_scores, write_layer_geojson
+from scoring import percentile_rank, spatial_smooth, upsert_zip_scores, write_layer_geojson
 from sources.cdc_pm25 import load_exceedance_days
 from sources.census_counties import load_counties_legacy_ct
 from spatial import area_weighted_average
@@ -50,7 +59,9 @@ def main():
         # slivers); fill_nozip_scores interpolates these from neighbours.
         print(f"{missing} ZCTA(s) matched no county -- left NaN for neighbour interpolation")
 
-    scored = percentile_rank(raw, raw_col="avg_exceedance_days")
+    print("Smoothing with neighbouring ZCTAs to soften county-line cliffs...")
+    smoothed = spatial_smooth(zcta, raw, raw_col="avg_exceedance_days")
+    scored = percentile_rank(smoothed, raw_col="spatially_smoothed")
 
     upsert_zip_scores(CATEGORY, scored, raw_col="avg_exceedance_days")
     write_layer_geojson(CATEGORY, COLOR)

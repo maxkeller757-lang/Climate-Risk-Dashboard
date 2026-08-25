@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from config import (
+    EQUAL_AREA_CRS,
     LAYERS_DIR,
     NO_ZIP_PREFIX,
     ZCTA_GEOMETRIES_PATH,
@@ -86,6 +87,66 @@ def percentile_rank(df: pd.DataFrame, raw_col: str, score_col: str = "score") ->
 
     df[score_col] = scores
     return df
+
+
+def spatial_smooth(
+    zcta_gdf: gpd.GeoDataFrame,
+    df: pd.DataFrame,
+    raw_col: str,
+    self_weight: float = 0.5,
+    out_col: str = "spatially_smoothed",
+) -> pd.DataFrame:
+    """Blend each polygon's raw value with the mean of its touching
+    neighbours (queen contiguity), to soften single-boundary cliffs before
+    percentile ranking.
+
+    Why this exists: some categories' raw metric comes from
+    administratively-bucketed source data -- Census county for Air
+    Quality, NWS forecast zone for Winter Weather -- rather than a
+    continuous field, and both are heavily zero-inflated (20-29% of ZCTAs
+    sit at exactly 0). percentile_rank() is extremely sensitive right at
+    that mass of zeros: crossing from 0 to even a modest nonzero value can
+    jump 60+ percentile points. Because county/zone boundaries often run
+    along or coincide with state lines, that statistical cliff reads
+    visually as "the map breaks at the state line" -- confirmed NOT a join
+    or area-weighting bug by testing both directly (e.g. Jackson County
+    CO's "below 9000ft" zone has a genuine 0 winter-storm-event count over
+    10 years -- its severe weather is real, but tagged to the neighbouring
+    "above 9000ft" zone -- next to a zone with 50).
+
+    Averaging with immediate neighbours smooths over a single sharp
+    boundary while leaving genuine regional trends (spanning many
+    polygons) intact. `self_weight` keeps each polygon's own value
+    dominant (0.5 default: half its own value, half the neighbour mean),
+    so this softens edges rather than erasing real local variation. A
+    polygon with no touching neighbours (an island, or one bordered only
+    by ocean) keeps its own raw value unchanged.
+
+    Returns [zcta5, out_col]. Does not touch the original raw_col -- pass
+    out_col to percentile_rank() for ranking, but keep upserting the
+    unsmoothed raw_col so the stored "raw metric" still reflects the real
+    physical measurement, not a spatially blended one.
+    """
+    proj = zcta_gdf.to_crs(EQUAL_AREA_CRS)[["zcta5", "geometry"]]
+    pairs = gpd.sjoin(
+        proj.rename(columns={"zcta5": "zcta5_a"}),
+        proj.rename(columns={"zcta5": "zcta5_b"}),
+        predicate="touches",
+    )[["zcta5_a", "zcta5_b"]]
+    pairs = pairs[pairs["zcta5_a"] != pairs["zcta5_b"]]
+
+    values = df.set_index("zcta5")[raw_col]
+    pairs["neighbor_value"] = pairs["zcta5_b"].map(values)
+    pairs = pairs.dropna(subset=["neighbor_value"])
+    neighbor_mean = pairs.groupby("zcta5_a")["neighbor_value"].mean()
+
+    own = df.set_index("zcta5")[raw_col]
+    blended = self_weight * own + (1 - self_weight) * neighbor_mean.reindex(own.index)
+    blended = blended.fillna(own)  # no neighbours -> keep own value unchanged
+
+    out = df.copy()
+    out[out_col] = out["zcta5"].map(blended)
+    return out
 
 
 def population_bias_correct(
