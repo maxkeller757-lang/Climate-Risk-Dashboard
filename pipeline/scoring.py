@@ -94,11 +94,15 @@ def spatial_smooth(
     df: pd.DataFrame,
     raw_col: str,
     self_weight: float = 0.5,
+    low_percentile_gate: float = 40.0,
     out_col: str = "spatially_smoothed",
 ) -> pd.DataFrame:
-    """Blend each polygon's raw value with the mean of its touching
-    neighbours (queen contiguity), to soften single-boundary cliffs before
-    percentile ranking.
+    """Blend a polygon's raw value with the mean of its touching neighbours
+    (queen contiguity), but *only* when that raw value sits in the low
+    tail of the distribution -- to soften single-boundary cliffs caused by
+    administrative-reporting artifacts before percentile ranking, without
+    disturbing polygons whose own value is already a trustworthy
+    measurement.
 
     Why this exists: some categories' raw metric comes from
     administratively-bucketed source data -- Census county for Air
@@ -114,11 +118,31 @@ def spatial_smooth(
     10 years -- its severe weather is real, but tagged to the neighbouring
     "above 9000ft" zone -- next to a zone with 50).
 
-    Averaging with immediate neighbours smooths over a single sharp
-    boundary while leaving genuine regional trends (spanning many
-    polygons) intact. `self_weight` keeps each polygon's own value
-    dominant (0.5 default: half its own value, half the neighbour mean),
-    so this softens edges rather than erasing real local variation. A
+    Why the gate: blending *every* polygon toward its neighbour mean,
+    regardless of how good its own value already is, turns out to create
+    the exact same class of cliff it was meant to fix, just relocated. A
+    NV/UT pair (89883 vs 84083) has almost no real difference -- raw
+    percentiles 51.3 vs 42.5, an 8.8-point gap -- but 89883 happens to
+    also border several very-high-severity zones a couple towns over.
+    Blending toward the *mean* of all its neighbours pulled 89883 from a
+    middling 51st percentile up to the mid-90s, manufacturing a 51-point
+    cliff against 84083 that was never there in the data. A polygon whose
+    own value is comfortably mid-distribution is not the sparse-reporting
+    artifact this exists to correct, and blending it toward extreme
+    neighbours is pure harm.
+
+    The gate is evaluated against each polygon's own raw value's
+    percentile among real ZCTAs only (matching percentile_rank's
+    reference population), *before* any smoothing: only the ones already
+    in roughly the bottom 40% get touched at all. Verified against both
+    known cases: at gate=40, the WY/CO cliff (82070 vs 80434, raw
+    percentiles 99.0 vs 35.2) still closes to a 1.6-point gap, while the
+    NV/UT pair above is left alone and settles at its true 9.5-point
+    difference instead of the fabricated 51.
+
+    `self_weight` (still applied only to gated polygons) keeps a
+    low-percentile polygon's own value from being fully overridden --
+    half its own value, half the neighbour mean by default. A gated
     polygon with no touching neighbours (an island, or one bordered only
     by ocean) keeps its own raw value unchanged.
 
@@ -127,6 +151,11 @@ def spatial_smooth(
     unsmoothed raw_col so the stored "raw metric" still reflects the real
     physical measurement, not a spatially blended one.
     """
+    is_gap = df["zcta5"].astype(str).str.startswith(NO_ZIP_PREFIX)
+    threshold = df.loc[~is_gap, raw_col].quantile(low_percentile_gate / 100.0)
+    own = df.set_index("zcta5")[raw_col]
+    needs_smoothing = own <= threshold
+
     proj = zcta_gdf.to_crs(EQUAL_AREA_CRS)[["zcta5", "geometry"]]
     pairs = gpd.sjoin(
         proj.rename(columns={"zcta5": "zcta5_a"}),
@@ -134,15 +163,17 @@ def spatial_smooth(
         predicate="touches",
     )[["zcta5_a", "zcta5_b"]]
     pairs = pairs[pairs["zcta5_a"] != pairs["zcta5_b"]]
+    # No need to compute neighbour means for polygons the gate will skip.
+    pairs = pairs[pairs["zcta5_a"].map(needs_smoothing).fillna(False)]
 
-    values = df.set_index("zcta5")[raw_col]
-    pairs["neighbor_value"] = pairs["zcta5_b"].map(values)
+    pairs["neighbor_value"] = pairs["zcta5_b"].map(own)
     pairs = pairs.dropna(subset=["neighbor_value"])
     neighbor_mean = pairs.groupby("zcta5_a")["neighbor_value"].mean()
 
-    own = df.set_index("zcta5")[raw_col]
     blended = self_weight * own + (1 - self_weight) * neighbor_mean.reindex(own.index)
-    blended = blended.fillna(own)  # no neighbours -> keep own value unchanged
+    # Keep the original value wherever the gate skipped smoothing, or a
+    # gated polygon happened to have no touching neighbours.
+    blended = blended.where(needs_smoothing, own).fillna(own)
 
     out = df.copy()
     out[out_col] = out["zcta5"].map(blended)
