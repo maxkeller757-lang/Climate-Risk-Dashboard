@@ -62,12 +62,36 @@ def _accumulate_year(year: int, temp_days_sum, hi_days_sum, grid_info):
         # Day-by-day, not the whole year at once: each day's slice is
         # ~3MB: (585, 1386) float32; the whole year would be ~1GB.
         for day in range(n_days):
-            tmax_f = kelvin_to_fahrenheit(np.array(tmmx_ds[tmax_var][day, :, :]))
-            rmin_pct = np.array(rmin_ds[rmin_var][day, :, :])
-            temp_days_sum += tmax_f > TEMP_THRESHOLD_F
+            # NOT np.array(var[day,:,:]): gridMET packs these as scaled
+            # uint16 with a _FillValue for the ~40% of this WGS84 grid
+            # that's ocean/Canada/Mexico, outside CONUS. Indexing the
+            # Variable returns a properly-scaled MaskedArray, but wrapping
+            # that in np.array() discards the mask and returns the *raw,
+            # unscaled* fill sentinel for every masked cell instead --
+            # confirmed directly against a real gridMET file while
+            # building Winter Weather's replacement (which shares this
+            # exact ingestion pattern). For tmmx that sentinel decodes to
+            # an absurd temperature, which would have inflated
+            # temp_days_sum/hi_days_sum at every ocean-adjacent coastal
+            # pixel a ZCTA's zonal mean samples.
+            #
+            # rothfusz_heat_index() itself calls np.asarray() internally
+            # (to support plain-ndarray callers), which strips a
+            # MaskedArray's mask right back off -- so passing masked
+            # arrays into it and trusting the mask to survive doesn't
+            # work either. Instead, capture which cells are invalid
+            # *before* calling it, compute on filled (dummy-safe) values,
+            # and force those cells' contribution to False afterward --
+            # correct regardless of what any downstream function does
+            # with the mask internally.
+            tmax_f = kelvin_to_fahrenheit(tmmx_ds[tmax_var][day, :, :])
+            rmin_pct = rmin_ds[rmin_var][day, :, :]
+            invalid = np.ma.getmaskarray(tmax_f) | np.ma.getmaskarray(rmin_pct)
 
-            hi = rothfusz_heat_index(tmax_f, rmin_pct)
-            hi_days_sum += hi > HEAT_INDEX_THRESHOLD_F
+            temp_days_sum += np.where(invalid, False, np.ma.filled(tmax_f, 0) > TEMP_THRESHOLD_F)
+
+            hi = rothfusz_heat_index(np.ma.filled(tmax_f, 0), np.ma.filled(rmin_pct, 0))
+            hi_days_sum += np.where(invalid, False, hi > HEAT_INDEX_THRESHOLD_F)
 
     return temp_days_sum, hi_days_sum
 

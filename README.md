@@ -65,7 +65,7 @@ wildly (event counts vs. % area vs. temperature days).
 | Category | Source | Window | Method |
 |---|---|---|---|
 | Severe Convective | NCEI Storm Events (Tornado/Hail/TStorm Wind) | 2015-2024 | 15mi buffer around ZCTA centroid, severity-weighted count, detrended against population density |
-| Winter Weather | NCEI Storm Events (Winter Storm/Ice Storm/Heavy Snow/Blizzard) | 2015-2024 | % area overlay against real NWS forecast zone polygons, severity-weighted |
+| Winter Weather | gridMET daily precipitation + max temp | 2015-2024 | Avg days/year with >=0.01in precip and max temp <=32F |
 | Flood | FEMA NFHL (live ArcGIS service) | current | % of ZCTA area in SFHA Zone A/AE/V/VE |
 | Wildfire | USFS Wildfire Hazard Potential + MTBS burn perimeters | latest model + 2015-2024 | 70% zonal-mean WHP + 30% historical burn intersection count |
 | Hurricane | NOAA HURDAT2 | 2015-2024 | Wind-speed-squared-weighted track point proximity, 150mi linear decay |
@@ -79,14 +79,62 @@ event histories** -- they use the latest published model version rather than
 a 2015-2024 rolling aggregation, since there's no annual time series to
 aggregate.
 
-**Winter Weather uses real NWS zone polygons, not a point buffer**: NCEI
-records Winter Storm/Ice Storm/Heavy Snow/Blizzard events by NWS public
-forecast zone (`CZ_TYPE='Z'`), not lat/lon -- confirmed empirically (0% of
-these events carry a usable point location in NCEI's bulk data, unlike
-Tornado/Hail/Wind). Fixed by downloading NOAA's real public-zone shapefile
-(`pipeline/sources/nws_zones.py`) and doing a proper % area overlay
-(`spatial.zone_overlay_score`), pulling Flood's polygon-overlay method
-forward a bit early.
+**Winter Weather was rebuilt off NCEI Storm Events onto gridMET** after two
+symptoms of the same underlying flaw surfaced: scores clustering around
+Dallas with no physical basis, and cliff-like discontinuities at state
+lines, sharpest in Nevada. NCEI Storm Events is a human-report database --
+report density tracks population, observer-network coverage, and each NWS
+forecast office's own reporting culture as much as it tracks actual winter
+weather, and because NWS zones never cross a state line, any difference in
+two states' reporting culture showed up as a hard edge exactly on the
+border. A spatial-smoothing pass was tried first and reduced the visible
+symptom, but the raw signal was never a measure of risk to begin with -- no
+amount of smoothing fixes a data source, only the presentation of it.
+
+`pipeline/winter_weather.py` now uses gridMET daily precipitation + max
+temp (`pipeline/sources/gridmet.py`, the same source Extreme Heat already
+uses): a day counts toward the average when it has at least 0.01in
+liquid-equivalent precipitation (NWS's own "measurable precipitation"
+threshold) and a max temperature at or below 32F -- max, not min, since min
+temp is below freezing almost every winter night everywhere and barely
+discriminates one place from another, while max temp at or below freezing
+means the day never warmed above freezing at all. This is model+station-
+blended physical measurement with zero human reporting involved, so both
+symptoms disappear at the root, and it's a continuous ~4km grid rather than
+zone polygons, so there's no zone boundary left for a state-line artifact
+to form on -- unlike Air Quality's county-line cliffs (a real granularity
+artifact in an otherwise continuous value), this category no longer runs
+`spatial_smooth` at all. Verified directly: the Nevada ZCTA pair that
+originally motivated this (89883/84083) went from a 68-point gap to a
+10-point one, and Dallas-metro ZCTAs now average within 1 point of
+comparable-latitude rural West Texas ZCTAs.
+
+This measures winter precipitation *frequency*, not snowfall *amount* --
+SNODAS (NOAA/NOHRSC gridded snow depth/SWE) would be the more direct
+measurement but ships as flat binary grids over FTP with no netCDF/
+shapefile/CSV option, so it was set aside in favor of reusing gridMET's
+already-proven ingestion path. Worth revisiting if snowfall amount
+specifically is ever needed. `sources/ncei_storm_events.py` and
+`sources/nws_zones.py` are unchanged and still used elsewhere -- Severe
+Convective still uses NCEI's point-event path, and no other category used
+NWS zones.
+
+While rebuilding this category, a severe bug surfaced in the shared gridMET
+ingestion pattern itself: indexing a netCDF4 `Variable` directly returns a
+properly-scaled `numpy.ma.MaskedArray` (gridMET packs values as scaled
+uint16 with a `_FillValue` for the ~40% of the CONUS grid that's ocean/
+Canada/Mexico), but wrapping that in `np.array()` silently discards the
+mask and returns the *raw, unscaled fill sentinel* for every masked cell
+instead. This was present in the already-shipped `heat.py` too, inflating
+its day-count thresholds at every ocean-adjacent coastal ZCTA (confirmed on
+a real sample day: 502,251 false-positive cells vs. 175,320 correct once
+fixed, a 2.9x inflation). Both `heat.py` and `winter_weather.py` now keep
+values as masked arrays through the full comparison chain and only fill
+masked cells to `False` at the very end; `heat.py` additionally has to
+capture the mask *before* calling `rothfusz_heat_index()`, since that
+function's internal `np.asarray()` would otherwise strip it right back off.
+Heat's cached rasters were regenerated under the fix; coastal ZCTA heat
+scores changed as a result.
 
 **Severe Convective is detrended against population density**: NCEI Storm
 Events is a human-report database, so raw report density tracks population
@@ -329,11 +377,11 @@ regardless of viewport aspect ratio.
 
 - **Validate the storm severity weighting.** `severity_weight()` in
   `pipeline/sources/ncei_storm_events.py` is a hand-rolled heuristic --
-  EF-scale for tornadoes, magnitude for hail and wind, deaths and injuries
-  as a proxy for winter events, since NCEI leaves MAGNITUDE unpopulated
-  for those. It has never been checked against the severe-weather
-  literature, and it drives Severe Convective and Winter Weather outright.
-  Deliberately deferred, not overlooked.
+  EF-scale for tornadoes, magnitude for hail and wind. It has never been
+  checked against the severe-weather literature, and it drives Severe
+  Convective outright. (Winter Weather no longer uses this function or
+  NCEI Storm Events at all -- see the gridMET rebuild above.) Deliberately
+  deferred, not overlooked.
 - **Small-ZCTA fidelity is improved but not perfect.** At a 25m
   simplification tolerance the sub-0.5 km^2 band still doesn't match the
   raw source exactly; a handful of single-building urban ZCTAs (10271 on
