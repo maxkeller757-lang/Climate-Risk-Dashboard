@@ -343,6 +343,31 @@ clipping reshapes it into a MultiPolygon. A polygon left under
 dropped rather than kept as an unrenderable remnant. Real ZCTAs are never
 touched by this step.
 
+**A further, hand-reviewed list of gap polygons is dropped outright**
+(`remove_excluded_gaps.py`, `pipeline/excluded_gap_ids.csv`, run right
+after the water-clip step above) -- these are bigger than a render sliver
+and survive that cleanup, but expose a real scoring-pipeline bug rather
+than being cosmetic noise. `scoring.spatial_smooth` finds queen-contiguity
+neighbours across the *entire* geometry set, gap polygons included, and
+water-clipping shatters a coastline's gap area into many small adjacent
+slivers; if one sliver's overlapping census tract carried a spurious
+edge-effect PM2.5 estimate, one smoothing pass spread that value to every
+other sliver touching it. Found 225 of the first 226 candidates this way
+had avg_exceedance_days ~0 (near-perfect air quality) but a percentile
+score of ~100 (worst in CONUS) -- confirmed by a user directly, having
+spotted score clustering on small coastal fragments that didn't match
+their surroundings. Detection method (`flag_aq_coastal_slivers.py`):
+clip_gap_water.py removed more than 10% of the polygon's area as water,
+AND its score exceeds its real-ZCTA neighbours' mean by more than 25
+points -- confirmed before removing anything that even the worst-case
+merged cluster of adjacent excluded polygons (~18 km^2) stays well under
+`verify_layers.py`'s 25 km^2 hole-size limit. A polygon here is removed
+everywhere, not just from Air Quality -- geometry is shared across all 9
+categories, and these are tiny fragments (median ~0.27 km^2) contributing
+little to any of them. This runs before every category module in
+`refresh_all.py`, so excluded polygons are never scored at all on a full
+rebuild, rather than scored and then discarded.
+
 ## Map rendering
 
 Basemap is a trimmed OpenFreeMap "liberty" vector style (~19 layers of ~111

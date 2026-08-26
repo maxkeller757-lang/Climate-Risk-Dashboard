@@ -1,8 +1,10 @@
 """
-NCEI Storm Events Database ingestion, shared by the Severe Convective
-(Tornado/Hail/Thunderstorm Wind) and Winter Weather (Winter Storm/Ice
-Storm/Heavy Snow/Blizzard) categories -- both read the same bulk "details"
-CSVs, just filtered to different EVENT_TYPE values.
+NCEI Storm Events Database ingestion, used by Severe Convective
+(Tornado/Hail/Thunderstorm Wind). Winter Weather used to read the same
+bulk "details" CSVs too (Winter Storm/Ice Storm/Heavy Snow/Blizzard,
+apportioned by NWS zone), but that methodology was replaced by a
+gridMET-based rebuild -- see README -- and the zone-event loading path
+(load_zone_events(), ZONE_EVENT_COLUMNS) was removed with it.
 
 Source: https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/
 """
@@ -132,40 +134,6 @@ def load_events(
         geometry=gpd.points_from_xy(all_events["BEGIN_LON"], all_events["BEGIN_LAT"]),
         crs=WEB_CRS,
     )
-
-
-ZONE_EVENT_COLUMNS = DETAIL_COLUMNS + ["CZ_TYPE", "CZ_FIPS", "STATE_FIPS"]
-
-
-def load_zone_events(
-    event_types: list[str],
-    start_year: int = START_YEAR,
-    end_year: int = END_YEAR,
-) -> pd.DataFrame:
-    """Load NCEI Storm Events reported by NWS zone (CZ_TYPE == 'Z') rather
-    than point location. Winter Storm/Ice Storm/Heavy Snow/Blizzard are
-    recorded this way exclusively -- no lat/lon exists anywhere in the bulk
-    data for them (see nws_zones.py). Returns event rows keyed by
-    STATE_ZONE (matches the NWS public zones shapefile's STATE_ZONE field),
-    not by geometry."""
-    from .nws_zones import FIPS_TO_POSTAL
-
-    frames = []
-    for year in range(start_year, end_year + 1):
-        path = download_details_csv(year)
-        df = pd.read_csv(path, compression="gzip", low_memory=False)
-        df = df[(df["EVENT_TYPE"].isin(event_types)) & (df["CZ_TYPE"] == "Z")]
-        keep = [c for c in ZONE_EVENT_COLUMNS if c in df.columns]
-        frames.append(df[keep])
-
-    events = pd.concat(frames, ignore_index=True)
-    events = events.dropna(subset=["CZ_FIPS", "STATE_FIPS"])
-    events["postal"] = events["STATE_FIPS"].astype(int).map(FIPS_TO_POSTAL)
-    events = events.dropna(subset=["postal"])  # drops non-CONUS states/territories
-    events["STATE_ZONE"] = (
-        events["postal"] + events["CZ_FIPS"].astype(int).astype(str).str.zfill(3)
-    )
-    return events
 
 
 def severity_weight(row: pd.Series) -> float:

@@ -21,6 +21,7 @@ import fill_nozip_scores
 import flood
 import heat
 import hurricane
+import remove_excluded_gaps
 import seismic
 import severe_convective
 import subdivide_large_gaps
@@ -64,6 +65,14 @@ def main():
     # file directly) and never touches analysis geometry or scores.
     print("\n=== Clip gap areas against water ===")
     clip_gap_water.main()
+
+    # Drops a small, hand-reviewed list of gap polygons that survive the
+    # cosmetic water-clip cleanup above but expose a real scoring-pipeline
+    # bug (see excluded_gap_ids.csv, remove_excluded_gaps.py). Must run
+    # before any category module: those polygons should never be scored
+    # in the first place, not scored and then discarded.
+    print("\n=== Remove excluded gap polygons ===")
+    remove_excluded_gaps.main()
 
     print("\n=== ZIP -> ZCTA crosswalk ===")
     build_zip_crosswalk.main()

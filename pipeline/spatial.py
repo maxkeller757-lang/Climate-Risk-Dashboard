@@ -172,56 +172,6 @@ def distance_weighted_score(
     return result
 
 
-def zone_overlay_score(
-    zcta_gdf: gpd.GeoDataFrame,
-    zones_gdf: gpd.GeoDataFrame,
-    events_df: pd.DataFrame,
-    zone_key_col: str,
-    weight_col: str = "weight",
-) -> pd.DataFrame:
-    """% area overlay: for each ZCTA, apportion each intersecting zone's
-    event count/severity by the fraction of the ZCTA's area that falls
-    inside that zone. Used by Winter Weather (NWS zones); the same overlay
-    shape will serve Flood/Wildfire's polygon work in Phase 2.
-
-    Returns [zcta5, event_count, severity_score], one row per ZCTA (0 where
-    no zone events matched).
-    """
-    zcta_proj = zcta_gdf.to_crs(EQUAL_AREA_CRS)[["zcta5", "geometry"]].copy()
-    zcta_proj["zcta_area"] = zcta_proj.geometry.area
-
-    zones_proj = zones_gdf.to_crs(EQUAL_AREA_CRS)[[zone_key_col, "geometry"]]
-
-    overlay = gpd.overlay(zcta_proj, zones_proj, how="intersection")
-    overlay["area_frac"] = overlay.geometry.area / overlay["zcta_area"]
-
-    zone_agg = (
-        events_df.groupby(zone_key_col)
-        .agg(event_count=(weight_col, "size"), severity_score=(weight_col, "sum"))
-        .reset_index()
-    )
-
-    overlay = overlay.merge(zone_agg, on=zone_key_col, how="left")
-    overlay[["event_count", "severity_score"]] = overlay[
-        ["event_count", "severity_score"]
-    ].fillna(0)
-    overlay["weighted_count"] = overlay["event_count"] * overlay["area_frac"]
-    overlay["weighted_severity"] = overlay["severity_score"] * overlay["area_frac"]
-
-    per_zcta = (
-        overlay.groupby("zcta5")
-        .agg(event_count=("weighted_count", "sum"), severity_score=("weighted_severity", "sum"))
-        .reset_index()
-    )
-
-    all_zctas = zcta_gdf[["zcta5"]].drop_duplicates()
-    result = all_zctas.merge(per_zcta, on="zcta5", how="left")
-    result[["event_count", "severity_score"]] = result[
-        ["event_count", "severity_score"]
-    ].fillna(0)
-    return result
-
-
 def area_apportioned_sum(
     zcta_gdf: gpd.GeoDataFrame,
     regions_gdf: gpd.GeoDataFrame,
