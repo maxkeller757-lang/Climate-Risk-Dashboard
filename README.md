@@ -72,7 +72,7 @@ wildly (event counts vs. % area vs. temperature days).
 | Drought | U.S. Drought Monitor county statistics | 2015-2024 | Average % time in D0-or-worse, area-weighted county -> ZCTA |
 | Extreme Heat | gridMET daily max temp + min RH | 2015-2024 | 60% days >90F, 40% days heat index >100F (Rothfusz regression) |
 | Seismic | USGS National Seismic Hazard Model (2018) + Volcanic Threat Assessment | latest model | 80% zonal-mean PGA + 20% distance-decayed volcano threat |
-| Air Quality | CDC/EPA fused daily county PM2.5 surface | 2015-2021 | Avg days/year with county mean PM2.5 above 35.4 ug/m3 (AQI > 100) |
+| Air Quality | CDC/EPA fused daily census-tract PM2.5 surface | 2016-2020 | Avg days/year with tract mean PM2.5 above 35.4 ug/m3 (AQI > 100) |
 
 **WHP and the USGS seismic hazard model are point-in-time hazard models, not
 event histories** -- they use the latest published model version rather than
@@ -102,7 +102,7 @@ means the day never warmed above freezing at all. This is model+station-
 blended physical measurement with zero human reporting involved, so both
 symptoms disappear at the root, and it's a continuous ~4km grid rather than
 zone polygons, so there's no zone boundary left for a state-line artifact
-to form on -- unlike Air Quality's county-line cliffs (a real granularity
+to form on -- unlike Air Quality's tract-line cliffs (a real granularity
 artifact in an otherwise continuous value), this category no longer runs
 `spatial_smooth` at all. Verified directly: the Nevada ZCTA pair that
 originally motivated this (89883/84083) went from a 68-point gap to a
@@ -174,20 +174,44 @@ monitor summaries have the metric we want but only cover 949 of 3,109
 CONUS counties (31% of counties, 43% of land, 78% of population) -- two
 thirds of the map would have been interpolated, and because monitors are
 sited in cities that interpolation would have biased rural air *upward*.
-The CDC/EPA fused surface blends those same monitors with a CMAQ model to
-give a daily value for every county, so the layer is measured-and-modelled
-everywhere instead of measured in cities and guessed elsewhere. Being
-daily, it also preserves the "days above a threshold" metric that a
-satellite annual-mean product would have forced us to abandon. Its window
-is 2015-2021: the source ends 31 Oct 2022, and including a partial year
-would undercount.
+The CDC/EPA fused surface blends those same monitors with EPA's
+Downscaler model to give a daily value everywhere, so the layer is
+measured-and-modelled instead of measured in cities and guessed
+elsewhere. Being daily, it also preserves the "days above a threshold"
+metric that a satellite annual-mean product would have forced us to
+abandon.
 
-One join hazard worth recording: Connecticut replaced its eight counties
-with nine Planning Regions in 2022, so the 2023 Census county file and
-this 2015-2021 dataset share no Connecticut GEOIDs at all. The join
-matched nothing and silently dropped the entire state until
-`load_counties_legacy_ct()` was added -- a reminder that a county-FIPS
-join against a pre-2022 dataset fails quietly rather than loudly.
+**Air Quality apportions from census tracts, not counties.** An earlier
+version of this category used CDC's county-level release of the same
+Downscaler model. That data was never a human-report signal -- unlike
+Winter Weather's old NCEI source, it's real monitor+model measurement --
+but bucketing it to 3,109 counties, some spanning hundreds of km, created
+a genuine granularity artifact: two ZCTAs a few miles apart on opposite
+sides of a county line could land 60+ points apart from an otherwise
+continuous field. CDC separately publishes the same Downscaler model at
+census-tract granularity (95,072 tracts, ~30x finer), which shrinks that
+artifact directly -- the largest neighbouring-ZCTA gap anywhere in the
+country dropped to under 42 points, with zero pairs left above 60, once
+apportionment moved to tracts. `scoring.spatial_smooth` still runs before
+ranking (tract lines are a real, if now much smaller, administrative
+boundary, unlike Winter Weather's zone lines, which were a fake signal
+removed by changing data source rather than smoothing).
+
+This category deliberately does **not** detrend against population
+density the way Severe Convective does. Dense-urban PM2.5 elevation is a
+real physical signal here -- traffic and industrial sources concentrate
+where people do -- not a reporting-density artifact, so it's left
+undamped. Confirmed directly: LA-metro ZCTAs average 94 vs. 77 for
+comparably-latitude rural high desert nearby, and the fused surface's own
+"days above threshold" field is used raw, never population-weighted.
+
+Window is 2016-2020, narrower than the county release's 2015-2021: CDC's
+tract-level Downscaler series doesn't extend as far as its county
+release. Both 2020-vintage: the tract dataset's FIPS predate Connecticut's
+2022 county-to-Planning-Region switch, and 2020 cartographic boundaries
+are already period-correct for that, so no legacy-geography join fix
+(needed for the old county-level source, see git history) is required
+here.
 
 **Composite score**: a weighted power mean (Holder mean, exponent 3), not a
 plain weighted average, of the 9 category percentiles -- both the weights
@@ -387,9 +411,9 @@ regardless of viewport aspect ratio.
   raw source exactly; a handful of single-building urban ZCTAs (10271 on
   Wall Street is ~87m across) remain the hardest cases. Their flood score,
   being share-of-area, is the most sensitive to it.
-- **Air Quality covers 2015-2021**, everything else 2015-2024 -- the CDC
-  source ends 31 Oct 2022 and a partial year would undercount. The
-  composite therefore blends a 7-year and a 10-year climatology.
+- **Air Quality covers 2016-2020**, everything else 2015-2024 -- CDC's
+  tract-level PM2.5 release doesn't extend as far as its county-level
+  one. The composite therefore blends a 5-year and a 10-year climatology.
 - Deployment target (live hosting vs. local/demo-video) -- not yet decided.
 - Vector tiles (MVT/PMTiles) are the next real performance step, now that
   gzip has taken the cheap win.
