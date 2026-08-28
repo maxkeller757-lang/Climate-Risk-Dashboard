@@ -374,20 +374,26 @@ automated detector, then 20 and 44 more from direct user review) --
 **A small registry of individual bad vertices is also patched**
 (`fix_zcta_geometry_defects.py`, run right after
 `fetch_zcta_geometries.py`, before anything else reads the file) -- for
-real ZCTAs, not gap polygons, where a single raw-TIGER digitization
-artifact drags open water into the polygon. ZCTA 55605 (Grand Portage,
-MN) had one vertex ~28km south of the rest of its Lake Superior
-shoreline, pulling a triangular wedge of open water into the polygon
-(~29% of its render-geometry area) -- large enough to survive
-`simplify_coverage()`, since that only removes deviation *below* the
-simplification tolerance. Fixed by removing the exact vertex (confirmed
-first that it isn't a shared boundary vertex with any neighbouring ZCTA,
-so removing it can't desync a shared edge) and reconnecting the ring with
-its existing neighbours -- no new points invented. Deliberately keyed on
-the exact (lon, lat) coordinate, not a "remove the southernmost vertex"
-heuristic: a future TIGER vintage could reshape the ZCTA enough that a
-heuristic starts deleting a real vertex instead, so the fix raises rather
-than silently no-op'ing if its registered coordinate isn't found.
+real ZCTAs, not gap polygons, where raw-TIGER digitization artifacts drag
+open water into the polygon. ZCTA 55605 (Grand Portage, MN) had a
+3-vertex southward excursion off its Lake Superior shoreline -- large
+enough to survive `simplify_coverage()`, since that only removes
+deviation *below* the simplification tolerance. Two of the three vertices
+could be safely removed (confirmed first that neither is a shared
+boundary vertex with any neighbouring ZCTA, so removing them can't desync
+a shared edge), each reconnecting the ring to its existing neighbours --
+no new points invented, and each validated individually since removing
+both in one step, or in the other order, produces a self-intersection
+against nearby fine coastline detail. The third (most northerly) vertex
+of the same excursion can't be removed this way at all -- any direct
+reconnection around it self-intersects -- so a small residual dip
+remains; fixing that would mean drawing a new point, which this
+"redraw with existing vertices only" approach deliberately doesn't do.
+Deliberately keyed on exact (lon, lat) coordinates, not a "remove the
+southernmost vertex" heuristic: a future TIGER vintage could reshape the
+ZCTA enough that a heuristic starts deleting a real vertex instead, so
+the fix raises rather than silently no-op'ing if a registered coordinate
+isn't found.
 
 ## Map rendering
 
