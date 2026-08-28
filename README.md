@@ -28,6 +28,11 @@ scripts/    Dev tooling, e.g. regenerating the trimmed basemap style.
 ## Running it
 
 ```bash
+# Requires pixi itself already installed (https://pixi.sh) -- everything
+# below assumes `pixi` is on PATH. pixi.lock is committed and pinned to
+# win-64, so `pixi install` reproduces the exact same Python + Node
+# environment on any Windows machine.
+
 # one-time: install the Python geo stack + Node (via pixi)
 pixi install
 
@@ -52,7 +57,9 @@ pixi run python pipeline/validate_scores.py
 pixi run python pipeline/verify_layers.py
 
 # frontend (localhost:5173) -- separate terminal
-cd frontend && pixi run --manifest-path ../pixi.toml npm run dev
+cd frontend
+pixi run --manifest-path ../pixi.toml npm install   # one-time
+pixi run --manifest-path ../pixi.toml npm run dev
 ```
 
 ## Data sources & methodology
