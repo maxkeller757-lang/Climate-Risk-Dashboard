@@ -18,6 +18,7 @@ import clip_gap_water
 import composite
 import drought
 import fill_nozip_scores
+import fix_zcta_geometry_defects
 import flood
 import heat
 import hurricane
@@ -50,6 +51,14 @@ CATEGORY_STEPS = [
 def main():
     print("\n=== ZCTA geometries ===")
     fetch_zcta_geometries()
+
+    # Patches a small, hand-reviewed list of individual bad vertices (raw
+    # TIGER digitization artifacts) before anything downstream -- render
+    # geometry, gap subdivision, category scoring -- reads the file. See
+    # fix_zcta_geometry_defects.py for why this is a registry of exact
+    # coordinates rather than a heuristic.
+    print("\n=== Fix known ZCTA geometry defects ===")
+    fix_zcta_geometry_defects.main()
 
     # Must run before the render build and before any scoring: it splits
     # gap areas at state lines and by size, changing both the polygon set

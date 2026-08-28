@@ -366,7 +366,28 @@ everywhere, not just from Air Quality -- geometry is shared across all 9
 categories, and these are tiny fragments (median ~0.27 km^2) contributing
 little to any of them. This runs before every category module in
 `refresh_all.py`, so excluded polygons are never scored at all on a full
-rebuild, rather than scored and then discarded.
+rebuild, rather than scored and then discarded. The exclusion list has
+grown across several rounds as more artifacts were found (226 from the
+automated detector, then 20 and 44 more from direct user review) --
+310 total.
+
+**A small registry of individual bad vertices is also patched**
+(`fix_zcta_geometry_defects.py`, run right after
+`fetch_zcta_geometries.py`, before anything else reads the file) -- for
+real ZCTAs, not gap polygons, where a single raw-TIGER digitization
+artifact drags open water into the polygon. ZCTA 55605 (Grand Portage,
+MN) had one vertex ~28km south of the rest of its Lake Superior
+shoreline, pulling a triangular wedge of open water into the polygon
+(~29% of its render-geometry area) -- large enough to survive
+`simplify_coverage()`, since that only removes deviation *below* the
+simplification tolerance. Fixed by removing the exact vertex (confirmed
+first that it isn't a shared boundary vertex with any neighbouring ZCTA,
+so removing it can't desync a shared edge) and reconnecting the ring with
+its existing neighbours -- no new points invented. Deliberately keyed on
+the exact (lon, lat) coordinate, not a "remove the southernmost vertex"
+heuristic: a future TIGER vintage could reshape the ZCTA enough that a
+heuristic starts deleting a real vertex instead, so the fix raises rather
+than silently no-op'ing if its registered coordinate isn't found.
 
 ## Map rendering
 

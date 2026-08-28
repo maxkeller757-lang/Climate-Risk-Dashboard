@@ -1,0 +1,65 @@
+"""
+Patch a small, hand-reviewed list of individual bad vertices in
+zcta_geometries.parquet -- digitization artifacts in the raw TIGER source
+that survive simplify_coverage() because they're too large a deviation
+for coverage-preserving simplification to touch.
+
+Each entry names the exact (lon, lat) vertex to drop, not a heuristic
+("the southernmost point" etc.) -- a future TIGER vintage could reshape a
+ZCTA enough that a heuristic starts deleting a real vertex instead. If a
+registered vertex is no longer found, this raises rather than silently
+no-op'ing, so a source update that already fixed (or moved) the defect
+gets noticed instead of masked.
+
+Run: pixi run python pipeline/fix_zcta_geometry_defects.py
+  (right after fetch_zcta_geometries.py, before anything reads the file)
+"""
+import geopandas as gpd
+from shapely.geometry import Polygon
+
+from config import ZCTA_GEOMETRIES_PATH
+
+# zcta5 -> (lon, lat) of the single vertex to remove, and why.
+DEFECTS = {
+    "55605": (
+        (-89.64103115922651, 47.77511530326033),
+        "TIGER digitization spike: a lone vertex ~28km south of the rest "
+        "of this ZCTA's Lake Superior shoreline, dragging a triangular "
+        "wedge of open water into the polygon (~29% of its render-geometry "
+        "area). Confirmed unique to this ZCTA (not a shared boundary "
+        "vertex with any neighbour) before removal.",
+    ),
+}
+
+
+def main():
+    gdf = gpd.read_parquet(ZCTA_GEOMETRIES_PATH)
+    fixed = 0
+    for zcta5, (bad_coord, reason) in DEFECTS.items():
+        matches = gdf.index[gdf["zcta5"] == zcta5]
+        if len(matches) == 0:
+            raise RuntimeError(f"fix_zcta_geometry_defects: {zcta5} not found in geometry file")
+        idx = matches[0]
+        geom = gdf.loc[idx, "geometry"]
+        coords = list(geom.exterior.coords)
+        try:
+            bad_i = coords.index(bad_coord)
+        except ValueError:
+            raise RuntimeError(
+                f"fix_zcta_geometry_defects: registered vertex {bad_coord} for "
+                f"{zcta5} not found -- geometry changed upstream, re-verify this fix "
+                f"still applies ({reason})"
+            )
+        new_poly = Polygon(coords[:bad_i] + coords[bad_i + 1 :])
+        if not new_poly.is_valid:
+            raise RuntimeError(f"fix_zcta_geometry_defects: removing vertex from {zcta5} produced an invalid polygon")
+        gdf.loc[idx, "geometry"] = new_poly
+        fixed += 1
+        print(f"{zcta5}: removed vertex {bad_coord} ({reason.splitlines()[0]})")
+
+    gdf.to_parquet(ZCTA_GEOMETRIES_PATH)
+    print(f"Fixed {fixed} geometry defect(s)")
+
+
+if __name__ == "__main__":
+    main()
