@@ -477,24 +477,3 @@ reports per-layer vertex count and file size.
 The map is bounded to CONUS + ~5deg padding (not the whole globe) and fit
 to that box on load, so the initial view is always CONUS-centered
 regardless of viewport aspect ratio.
-
-## Open items
-
-- **Validate the storm severity weighting.** `severity_weight()` in
-  `pipeline/sources/ncei_storm_events.py` is a hand-rolled heuristic --
-  EF-scale for tornadoes, magnitude for hail and wind. It has never been
-  checked against the severe-weather literature, and it drives Severe
-  Convective outright. (Winter Weather no longer uses this function or
-  NCEI Storm Events at all -- see the gridMET rebuild above.) Deliberately
-  deferred, not overlooked.
-- **Small-ZCTA fidelity is improved but not perfect.** At a 25m
-  simplification tolerance the sub-0.5 km^2 band still doesn't match the
-  raw source exactly; a handful of single-building urban ZCTAs (10271 on
-  Wall Street is ~87m across) remain the hardest cases. Their flood score,
-  being share-of-area, is the most sensitive to it.
-- **Air Quality covers 2016-2020**, everything else 2015-2024 -- CDC's
-  tract-level PM2.5 release doesn't extend as far as its county-level
-  one. The composite therefore blends a 5-year and a 10-year climatology.
-- Deployment target (live hosting vs. local/demo-video) -- not yet decided.
-- Vector tiles (MVT/PMTiles) are the next real performance step, now that
-  gzip has taken the cheap win.
