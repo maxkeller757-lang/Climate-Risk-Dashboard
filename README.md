@@ -375,8 +375,30 @@ little to any of them. This runs before every category module in
 `refresh_all.py`, so excluded polygons are never scored at all on a full
 rebuild, rather than scored and then discarded. The exclusion list has
 grown across several rounds as more artifacts were found (226 from the
-automated detector, then 20 and 44 more from direct user review) --
-310 total.
+automated air-quality detector, then 20 and 44 more from direct user
+review, then 25 and 55 more from a second, unrelated artifact below) --
+390 total.
+
+**A second, structurally different sliver artifact hits Severe
+Convective.** Unlike the Air Quality case, `severe_convective.py` never
+runs `spatial_smooth` -- its bug is in `scoring.population_bias_correct`
+instead. That function fits `log1p(severity) ~ log1p(population_density)`
+and keeps the residual as the ranked value, on the theory that a ZCTA
+reporting more events than its population predicts has a genuinely
+elevated hazard (see the Severe Convective section above). For a gap
+polygon with near-zero apportioned population -- exactly what a small,
+mostly-uninhabited coastal or lakeshore sliver has -- the regression's
+own "expected severity at zero density" baseline is at its lowest, so
+*any* real regional storm history within the 15-mile event buffer reads
+as a large positive residual. Found via user report (small slivers
+bordering water near Green Bay WI, then the same pattern near Lake Erie /
+Lake St. Clair and Lake Ontario): 78 polygons where
+`severe_convective_score` exceeded the mean of their real-ZCTA
+neighbours by more than 25 points, several scoring 95+ (worst in CONUS)
+off a handful of storm reports within 15 miles that any populated
+neighbour would have had entirely explained away by the density
+correction. Same removal mechanism and same 25 km^2 hole-size check as
+the Air Quality slivers (worst connected cluster here: ~12.9 km^2).
 
 **A small registry of individual bad vertices is also patched**
 (`fix_zcta_geometry_defects.py`, run right after
