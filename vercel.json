@@ -4,7 +4,6 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.py": {
-      "runtime": "python3.11",
       "includeFiles": "data/{zcta_geometries_render.parquet,zip_scores.parquet,zip_to_zcta.parquet}"
     }
   },
