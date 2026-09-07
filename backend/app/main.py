@@ -10,6 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
 import json
+import os
 
 import pandas as pd
 
@@ -46,10 +47,19 @@ _ZIP_RESOLVE_ERRORS = {
 
 app = FastAPI(title="Zip-Code Climate & Hazard Risk Dashboard API")
 
-# Local dev only: Vite's default port. Tighten this before any real deploy.
+# Vite's default dev port, always allowed so local dev never breaks.
+_DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+# Production origin(s) aren't known at code-review time (deploy target/URL
+# not yet decided -- see README), so this reads them from an env var
+# instead of hardcoding a domain that would need a code change to fix
+# later. Comma-separated, e.g. ALLOWED_ORIGINS=https://hazard.example.com
+# Set on whatever platform ends up hosting this; unset in dev, where the
+# two localhost origins above are already enough.
+_extra_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_DEV_ORIGINS + _extra_origins,
     allow_methods=["GET"],
     allow_headers=["*"],
 )

@@ -13,9 +13,9 @@ const ROWS: Row[] = [
   },
   {
     name: "Winter Weather",
-    source: "NCEI Storm Events (Winter/Ice Storm, Heavy Snow, Blizzard), 2015-2024",
+    source: "gridMET daily precipitation + max temp, 2015-2024",
     method:
-      "These event types are recorded by NWS forecast zone, not point location -- % area overlay against real NWS zone polygons, severity-weighted.",
+      "Average days per year with at least 0.01in liquid-equivalent precipitation and a max temperature at or below 32F. Previously used NCEI Storm Events (a human-report database), but report density tracked population and each NWS office's own reporting culture as much as real winter weather -- it showed up as scores clustering around Dallas and hard cliffs at state lines. gridMET is model+station-blended physical measurement with no human reporting involved, and a continuous grid has no zone boundary for that kind of artifact to form on.",
   },
   {
     name: "Flood",
@@ -53,9 +53,9 @@ const ROWS: Row[] = [
   },
   {
     name: "Air Quality",
-    source: "CDC/EPA fused daily county PM2.5 surface, 2015-2021",
+    source: "CDC/EPA fused daily census-tract PM2.5 surface, 2016-2020",
     method:
-      "Average days per year with county mean PM2.5 above 35.4 ug/m3 -- the point where the 24-hour AQI passes 100 into 'Unhealthy for Sensitive Groups'. Uses the fused monitor+model surface rather than EPA monitor data directly, because monitors exist in only 31% of CONUS counties and are sited in cities, which would have left most of the map interpolated and biased rural air upward. Window is 2015-2021 (the source ends 31 Oct 2022; a partial year would undercount).",
+      "Average days per year with census-tract mean PM2.5 above 35.4 ug/m3 -- the point where the 24-hour AQI passes 100 into 'Unhealthy for Sensitive Groups'. Uses the fused monitor+model surface rather than raw EPA monitor data, because monitors exist in only 31% of CONUS counties and are sited in cities, which would have left most of the map interpolated and biased rural air upward. Apportioned at census-tract granularity (~30x finer than county) to avoid artificial cliffs at county lines; dense-urban PM2.5 elevation is left undamped since it's a real signal, not a reporting artifact. Window is 2016-2020, shorter than other categories, because CDC's tract-level release doesn't extend as far as its county-level one.",
   },
   {
     name: "Composite",
@@ -83,13 +83,20 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="mb-4 text-sm text-gray-600">
+          <strong className="text-gray-800">
+            These scores reflect historical hazard patterns, not real-time or
+            forecasted conditions.
+          </strong>{" "}
           Every score is a 0-100 percentile rank of a raw metric, computed once offline
-          by <code className="rounded bg-gray-100 px-1">pipeline/</code> and never
-          recomputed at request time -- percentile ranking makes categories with wildly
-          different raw units (event counts, % area, days/year) comparable on the same
-          scale. Most categories cover 2015-2024; Wildfire Hazard Potential and the
+          from recent-years historical data (2015-2024 for most categories, shorter for
+          a couple noted below) by{" "}
+          <code className="rounded bg-gray-100 px-1">pipeline/</code> and never
+          recomputed at request time -- there is no live feed behind this map, and it
+          will not reflect a storm, fire, or flood happening today. Percentile ranking
+          makes categories with wildly different raw units (event counts, % area,
+          days/year) comparable on the same scale. Wildfire Hazard Potential and the
           seismic hazard model are point-in-time model outputs, not event histories, so
-          they use the latest published model version instead.
+          they use the latest published model version instead of a multi-year window.
         </p>
 
         <div className="flex flex-col gap-3">
