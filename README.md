@@ -10,9 +10,8 @@ offline GIS pipeline.
 polygons). Map, zip search, click-to-inspect, and the methodology modal
 all work end-to-end against real pre-computed data.
 
-**Desktop only, for now.** The layout isn't built for narrow/phone-width
-screens -- panels overlap below about 500px wide. Not a near-term
-priority, just flagging it so nobody's surprised.
+**Desktop only** The layout isn't built for narrow/phone-width
+screens; panels overlap below about 500px wide.
 
 ## Repo layout
 
