@@ -1,0 +1,30 @@
+# Vercel respects .gitignore for git-based deploys, but a local
+# `vercel` CLI deploy uploads the whole working directory including
+# untracked files unless this file says otherwise -- so this is the
+# backstop for that path, not just a git mirror.
+#
+# The one thing that matters most here: data/raw/ is ~15GB of the
+# pipeline's own download cache (gridMET netCDFs, TIGER shapefiles,
+# FEMA/USDM query caches). Nothing at request time ever reads it -- only
+# the offline pipeline does -- so it must never be uploaded.
+data/raw/
+data/*.sqlite
+# The ~200MB full-detail analysis geometry: the API only ever reads the
+# much smaller render geometry (zcta_geometries_render.parquet, which is
+# NOT excluded below -- vercel.json's includeFiles needs it).
+data/zcta_geometries.parquet
+
+.pixi/
+pixi.lock
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+.git/
+.vscode/
+.idea/

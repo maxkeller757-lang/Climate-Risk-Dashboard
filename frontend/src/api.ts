@@ -29,8 +29,13 @@ export async function fetchLayers(): Promise<LayerMeta[]> {
   return res.json();
 }
 
+// Static file, not an API call: these are tens of MB each, well past what
+// a serverless function response can return (Vercel included), so they're
+// served directly from static hosting instead of through the backend.
+// /layers/*.geojson is populated by scripts/copy-layers.mjs (predev/prebuild)
+// from the pipeline's data/layers/ output.
 export function layerGeoJsonUrl(category: string): string {
-  return `${BASE}/layer/${category}`;
+  return `/layers/${category}.geojson`;
 }
 
 export async function fetchZipExists(zip: string): Promise<boolean> {

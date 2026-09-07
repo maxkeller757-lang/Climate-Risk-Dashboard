@@ -1,0 +1,17 @@
+# Runtime dependencies for api/index.py (the Vercel Python function --
+# see vercel.json). Deliberately NOT the full pixi/conda-forge geo stack
+# (geopandas, rasterio, fiona, GDAL) that pipeline/ needs -- the API
+# itself only ever reads parquet files and decodes one WKB geometry at a
+# time (see backend/app/data_access.py), which plain pandas/pyarrow/
+# shapely handle without needing GDAL at all. That matters here
+# specifically because GDAL's system-level C dependencies are a common
+# source of pain on serverless platforms; avoiding the need for it
+# entirely is safer than trying to get it installed.
+#
+# Versions pinned to what's actually tested locally (pixi.toml / pixi.lock
+# resolve these too, from conda-forge -- these pip versions don't need to
+# match exactly, just be compatible with the same code).
+fastapi==0.141.1
+pandas==3.0.5
+pyarrow==25.0.0
+shapely==2.1.2

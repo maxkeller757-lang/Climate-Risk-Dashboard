@@ -2,24 +2,24 @@
 FastAPI app serving pre-computed hazard scores. No live geoprocessing here
 -- every response reads data the offline pipeline (pipeline/) already wrote.
 
+The large per-category GeoJSON layers are NOT served from here -- see
+layers_meta.py / frontend's api.ts. They're static files (data/layers/),
+fetched by the browser directly from static hosting rather than through
+this API, since they're tens of MB each and a serverless function
+response is capped well below that on most platforms (Vercel included).
+This app only ever answers small, dynamic, single-ZCTA/zip-code lookups.
+
 Run: pixi run uvicorn backend.app.main:app --reload --port 8003
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
 
-import json
 import os
 
 import pandas as pd
 
-from .data_access import (
-    NO_ZIP_PREFIX,
-    layer_geojson_path,
-    load_zcta_geometries,
-    load_zip_scores,
-)
+from .data_access import NO_ZIP_PREFIX, load_zcta_attrs, load_zcta_geometry_feature, load_zip_scores
 from .layers_meta import LAYERS, LAYERS_BY_CATEGORY
 from .zip_lookup import classify_zip_format, resolve_zcta
 
@@ -64,46 +64,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Compresses the small dynamic JSON endpoints (/api/layers, /api/zip/...)
-# on the fly -- cheap, since those responses are a few KB. It does NOT
-# touch /api/layer/{category}: FileResponse sends large files via uvicorn's
-# zero-copy `pathsend` extension, which hands the file straight to the OS
-# and never passes through body-based middleware like this one. That's
-# handled separately below with a file pre-gzipped at pipeline build time
-# (compressing the real 34MB payload live would cost 1-3s of blocking CPU
-# per request). No brotli here: that needs a third-party ASGI middleware
-# (e.g. brotli-asgi) since Starlette only ships gzip.
+# Compresses every response from here on -- cheap, since everything left
+# in this app is a small dynamic JSON payload (a few KB at most). The
+# large per-category layers this used to also special-case around are
+# gone from this app entirely; see the module docstring.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/api/layers")
 def get_layers():
     return LAYERS
-
-
-@app.get("/api/layer/{category}")
-def get_layer(category: str, request: Request):
-    if category not in LAYERS_BY_CATEGORY:
-        raise HTTPException(404, f"Unknown layer category: {category}")
-    path = layer_geojson_path(category)
-    if not path.exists():
-        raise HTTPException(
-            404,
-            f"Layer '{category}' has not been generated yet by the pipeline.",
-        )
-
-    # Serve the pre-gzipped sibling (~25% of the size) when the client
-    # supports it -- every browser does. GZipMiddleware can't do this job
-    # itself; see the comment on its registration above.
-    accepts_gzip = "gzip" in request.headers.get("accept-encoding", "")
-    gz_path = path.with_name(path.name + ".gz")
-    if accepts_gzip and gz_path.exists():
-        return FileResponse(
-            gz_path,
-            media_type="application/geo+json",
-            headers={"Content-Encoding": "gzip"},
-        )
-    return FileResponse(path, media_type="application/geo+json")
 
 
 @app.get("/api/zip/{zipcode}/exists")
@@ -125,11 +95,9 @@ def zip_exists(zipcode: str):
 def get_zcta_geometry(zcta5: str):
     """Single-ZCTA polygon, used by the frontend to zoom/pan to and outline
     a searched zip -- independent of whichever category layer is active."""
-    gdf = load_zcta_geometries()
-    row = gdf.loc[gdf["zcta5"] == zcta5]
-    if row.empty:
+    feature = load_zcta_geometry_feature(zcta5)
+    if feature is None:
         raise HTTPException(404, f"No geometry for ZCTA {zcta5}.")
-    feature = json.loads(row.iloc[[0]].to_json())["features"][0]
     return feature
 
 
@@ -168,7 +136,7 @@ def get_layer_top_zones(category: str, limit: int = 3):
         raise HTTPException(404, f"Layer '{category}' has not been scored yet.")
 
     real = scores[~scores["zcta5"].str.startswith(NO_ZIP_PREFIX)]
-    attrs = load_zcta_geometries()[["zcta5", "state", "county", "population"]]
+    attrs = load_zcta_attrs()
     merged = real.merge(attrs, on="zcta5", how="left")
     merged["population"] = merged["population"].fillna(0)
 
