@@ -400,6 +400,21 @@ neighbour would have had entirely explained away by the density
 correction. Same removal mechanism and same 25 km^2 hole-size check as
 the Air Quality slivers (worst connected cluster here: ~12.9 km^2).
 
+**Some corrupted gap polygons get merged into a neighbour instead of
+dropped.** A handful of user-identified gap polygons (up to ~63 km^2 --
+far too big to delete under the 25 km^2 hole-size limit above) carried
+bad data of their own. `merge_gaps_into_zcta.py` (registry of target
+ZCTA -> gap-polygon ids, run right after `remove_excluded_gaps.py`)
+unions each one into an adjacent real ZCTA's existing geometry rather
+than deleting it, so the land area stays on the map instead of becoming
+a hole. The absorbing ZCTA's *score* is left untouched -- confirmed
+byte-identical before and after for all three targets used so far
+(03592, 03579, 04936) -- only its geometry grows; the gap polygon's own
+id and score row are removed. On a full rebuild this runs before any
+category scores anything, so the absorbing ZCTA's score there is instead
+computed fresh against its true, now-larger geometry, which is the
+correct reproducible behaviour rather than a special case.
+
 **A small registry of individual bad vertices is also patched**
 (`fix_zcta_geometry_defects.py`, run right after
 `fetch_zcta_geometries.py`, before anything else reads the file) -- for

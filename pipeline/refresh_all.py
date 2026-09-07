@@ -22,6 +22,7 @@ import fix_zcta_geometry_defects
 import flood
 import heat
 import hurricane
+import merge_gaps_into_zcta
 import remove_excluded_gaps
 import seismic
 import severe_convective
@@ -82,6 +83,16 @@ def main():
     # in the first place, not scored and then discarded.
     print("\n=== Remove excluded gap polygons ===")
     remove_excluded_gaps.main()
+
+    # A handful of gap polygons turned out to carry corrupted data of
+    # their own; rather than drop them (which would punch a real hole --
+    # some are 50+ km^2, well over verify_layers.py's limit) their area
+    # is absorbed into an adjacent real ZCTA instead. See
+    # merge_gaps_into_zcta.py -- on a full rebuild this runs before any
+    # scoring, so the absorbing ZCTA's score is computed fresh against
+    # its true (now larger) geometry, same as any other ZCTA.
+    print("\n=== Merge corrupted gap polygons into neighbouring ZCTAs ===")
+    merge_gaps_into_zcta.main()
 
     print("\n=== ZIP -> ZCTA crosswalk ===")
     build_zip_crosswalk.main()
