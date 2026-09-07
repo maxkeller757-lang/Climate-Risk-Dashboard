@@ -19,7 +19,7 @@ import os
 
 import pandas as pd
 
-from .data_access import NO_ZIP_PREFIX, load_zcta_attrs, load_zcta_geometry_feature, load_zip_scores
+from .data_access import ROOT_DIR, NO_ZIP_PREFIX, load_zcta_attrs, load_zcta_geometry_feature, load_zip_scores
 from .layers_meta import LAYERS, LAYERS_BY_CATEGORY
 from .zip_lookup import classify_zip_format, resolve_zcta
 
@@ -69,6 +69,26 @@ app.add_middleware(
 # large per-category layers this used to also special-case around are
 # gone from this app entirely; see the module docstring.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Serves the built frontend (frontend/dist/, produced by vercel.json's
+# buildCommand) at "/" -- Vercel auto-detected this as a FastAPI backend
+# project (requirements.txt lists fastapi) and, per its docs, expects the
+# frontend to be registered this way (FastAPI's own app.frontend() API,
+# which Vercel's build promotes to its CDN) rather than served as an
+# independent static site via outputDirectory. Without this, every
+# request -- including "/" -- reaches this function, and FastAPI 404s on
+# a path nothing here handles.
+#
+# Guarded on the directory actually existing: local dev never runs a
+# frontend build (npm run dev serves it separately on :5173), so
+# frontend/dist normally doesn't exist here at all, and calling
+# app.frontend() against a missing directory would break `pixi run
+# uvicorn` on every fresh checkout. This is purely additive when the
+# build exists (Vercel, or a local `npm run build` for testing this
+# exact path) and a no-op otherwise.
+_FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+if _FRONTEND_DIST.exists():
+    app.frontend("/", directory=_FRONTEND_DIST, fallback="index.html", check_dir=False)
 
 
 @app.get("/api/layers")
