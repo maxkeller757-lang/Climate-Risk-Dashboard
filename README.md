@@ -1,14 +1,18 @@
 # Zip-Code Climate & Hazard Risk Dashboard
 
-A dashboard that shows a 0-100 hazard risk score per US zip code across 9
-categories (severe convective weather, flood, wildfire, hurricane, winter
-weather, drought, extreme heat, seismic, air quality) plus a composite
-score, derived from real historical hazard data (mostly 2015-2024; see the
-per-category windows below) via an offline GIS pipeline.
+A map that scores every US zip code 0-100 across 9 hazard categories
+(severe convective weather, flood, wildfire, hurricane, winter weather,
+drought, extreme heat, seismic, air quality) plus a composite score,
+using real historical hazard data (mostly 2015-2024) run through an
+offline GIS pipeline.
 
-**Status: all 9 categories + composite live**, CONUS-wide (38,072 polygons).
-Map, zip search, click-to-inspect, and methodology modal all working
-end-to-end against real pre-computed data.
+**Status**: all 9 categories + composite are live, CONUS-wide (~40,000
+polygons). Map, zip search, click-to-inspect, and the methodology modal
+all work end-to-end against real pre-computed data.
+
+**Desktop only, for now.** The layout isn't built for narrow/phone-width
+screens -- panels overlap below about 500px wide. Not a near-term
+priority, just flagging it so nobody's surprised.
 
 ## Repo layout
 
@@ -64,10 +68,10 @@ pixi run --manifest-path ../pixi.toml npm run dev
 
 ## Data sources & methodology
 
-All scores are percentile ranks (0-100) of a raw metric, computed once
-offline and never recomputed at request time. Percentile ranking makes the 9
-categories comparable on the same scale even though their raw units differ
-wildly (event counts vs. % area vs. temperature days).
+Every score is a 0-100 percentile rank of a raw metric, computed once
+offline and never recomputed at request time -- that's what makes 9
+categories with wildly different raw units (event counts, % area,
+days/year) comparable on one scale.
 
 | Category | Source | Window | Method |
 |---|---|---|---|
@@ -81,413 +85,231 @@ wildly (event counts vs. % area vs. temperature days).
 | Seismic | USGS National Seismic Hazard Model (2018) + Volcanic Threat Assessment | latest model | 80% zonal-mean PGA + 20% distance-decayed volcano threat |
 | Air Quality | CDC/EPA fused daily census-tract PM2.5 surface | 2016-2020 | Avg days/year with tract mean PM2.5 above 35.4 ug/m3 (AQI > 100) |
 
-**WHP and the USGS seismic hazard model are point-in-time hazard models, not
-event histories** -- they use the latest published model version rather than
-a 2015-2024 rolling aggregation, since there's no annual time series to
-aggregate.
+WHP and the USGS seismic model are point-in-time model outputs, not event
+histories, so they use the latest published version instead of a rolling
+2015-2024 window.
 
-**Winter Weather was rebuilt off NCEI Storm Events onto gridMET** after two
-symptoms of the same underlying flaw surfaced: scores clustering around
-Dallas with no physical basis, and cliff-like discontinuities at state
-lines, sharpest in Nevada. NCEI Storm Events is a human-report database --
-report density tracks population, observer-network coverage, and each NWS
-forecast office's own reporting culture as much as it tracks actual winter
-weather, and because NWS zones never cross a state line, any difference in
-two states' reporting culture showed up as a hard edge exactly on the
-border. A spatial-smoothing pass was tried first and reduced the visible
-symptom, but the raw signal was never a measure of risk to begin with -- no
-amount of smoothing fixes a data source, only the presentation of it.
+**Winter Weather was rebuilt off NCEI Storm Events onto gridMET.** The
+old scores clustered oddly around Dallas and had hard cliffs at state
+lines (worst in Nevada) -- both symptoms of the same root cause. NCEI
+Storm Events is a human-report database, and report density tracks
+population and each NWS office's own reporting habits as much as it
+tracks actual winter weather; since NWS zones never cross a state line,
+any difference in two states' reporting culture became a hard edge right
+at the border. `winter_weather.py` now uses gridMET instead: a day counts
+if it has at least 0.01in of precipitation and a max temp at or below
+32F (max, not min -- min temp is below freezing almost every winter night
+everywhere and doesn't discriminate). That's model+station-blended
+physical measurement with no human reporting involved, so both symptoms
+disappear at the root, and a continuous grid has no zone boundary for a
+state-line artifact to form on in the first place. The Nevada ZCTA pair
+that motivated this went from a 68-point gap to 10; Dallas now scores
+within 1 point of comparable rural West Texas. It measures precipitation
+*frequency*, not snowfall amount -- SNODAS would be more direct but ships
+as flat binary FTP grids with no easy ingestion path, so gridMET (already
+proven out by Heat) was the pragmatic choice.
 
-`pipeline/winter_weather.py` now uses gridMET daily precipitation + max
-temp (`pipeline/sources/gridmet.py`, the same source Extreme Heat already
-uses): a day counts toward the average when it has at least 0.01in
-liquid-equivalent precipitation (NWS's own "measurable precipitation"
-threshold) and a max temperature at or below 32F -- max, not min, since min
-temp is below freezing almost every winter night everywhere and barely
-discriminates one place from another, while max temp at or below freezing
-means the day never warmed above freezing at all. This is model+station-
-blended physical measurement with zero human reporting involved, so both
-symptoms disappear at the root, and it's a continuous ~4km grid rather than
-zone polygons, so there's no zone boundary left for a state-line artifact
-to form on -- unlike Air Quality's tract-line cliffs (a real granularity
-artifact in an otherwise continuous value), this category no longer runs
-`spatial_smooth` at all. Verified directly: the Nevada ZCTA pair that
-originally motivated this (89883/84083) went from a 68-point gap to a
-10-point one, and Dallas-metro ZCTAs now average within 1 point of
-comparable-latitude rural West Texas ZCTAs.
+Building this also surfaced a real bug in the shared gridMET ingestion
+pattern: reading a masked netCDF4 variable as plain `np.array()` silently
+discards the mask and returns garbage fill values for the ~40% of the
+grid that's ocean/Canada/Mexico. This was already live in `heat.py`,
+inflating its day-counts at every coastal ZCTA (2.9x too many flagged
+cells on a sample day). Fixed in both files by keeping values masked
+through the full comparison chain; heat's cached rasters were regenerated
+and coastal scores changed as a result.
 
-This measures winter precipitation *frequency*, not snowfall *amount* --
-SNODAS (NOAA/NOHRSC gridded snow depth/SWE) would be the more direct
-measurement but ships as flat binary grids over FTP with no netCDF/
-shapefile/CSV option, so it was set aside in favor of reusing gridMET's
-already-proven ingestion path. Worth revisiting if snowfall amount
-specifically is ever needed. `sources/ncei_storm_events.py` and
-`sources/nws_zones.py` are unchanged and still used elsewhere -- Severe
-Convective still uses NCEI's point-event path, and no other category used
-NWS zones.
+**Severe Convective is detrended against population density.** NCEI
+report density tracks population as much as real storm activity, so
+every major metro looked like a hazard hotspot before this fix.
+`population_bias_correct` fits `log1p(severity) ~ log1p(density)` and
+ranks the residual instead of the raw count, a standard technique in
+severe-weather bias-correction literature. It doesn't fully remove
+reporting bias -- rural areas can still underreport -- but it removes the
+population-driven trend, which was the dominant, correctable piece.
 
-While rebuilding this category, a severe bug surfaced in the shared gridMET
-ingestion pattern itself: indexing a netCDF4 `Variable` directly returns a
-properly-scaled `numpy.ma.MaskedArray` (gridMET packs values as scaled
-uint16 with a `_FillValue` for the ~40% of the CONUS grid that's ocean/
-Canada/Mexico), but wrapping that in `np.array()` silently discards the
-mask and returns the *raw, unscaled fill sentinel* for every masked cell
-instead. This was present in the already-shipped `heat.py` too, inflating
-its day-count thresholds at every ocean-adjacent coastal ZCTA (confirmed on
-a real sample day: 502,251 false-positive cells vs. 175,320 correct once
-fixed, a 2.9x inflation). Both `heat.py` and `winter_weather.py` now keep
-values as masked arrays through the full comparison chain and only fill
-masked cells to `False` at the very end; `heat.py` additionally has to
-capture the mask *before* calling `rothfusz_heat_index()`, since that
-function's internal `np.asarray()` would otherwise strip it right back off.
-Heat's cached rasters were regenerated under the fix; coastal ZCTA heat
-scores changed as a result.
+**Extreme Heat uses gridMET for both sub-metrics**, not gridMET +
+nClimGrid-Daily as originally scoped, since both need daily max temp
+anyway and pulling two redundant 10-year grids wasn't worth it. The
+Rothfusz heat-index regression was checked against NWS's published chart
+before the full run, which caught a transcription bug (one coefficient
+off by 1000x) that would have silently produced nonsense.
 
-**Severe Convective is detrended against population density**: NCEI Storm
-Events is a human-report database, so raw report density tracks population
-as much as real storm activity -- every major metro looked like a hazard
-hotspot before this fix. `scoring.population_bias_correct` fits
-`log1p(severity) ~ log1p(population_density)` (Census county population,
-areally apportioned onto ZCTAs) and keeps the residual as the raw metric, a
-standard technique in severe-weather reporting-bias literature. This does
-not (and cannot) fully remove reporting bias -- rural areas can still
-underreport hazard below what a resident would notice and report -- but it
-removes the population-driven trend, which was the dominant, statistically
-correctable component.
+**Seismic's volcano component** is a small hand-curated table of CONUS
+Cascades/Yellowstone/Long Valley centers from USGS's 2018 Volcanic Threat
+Assessment -- USGS's own GIS product for this ships only as a detailed
+ArcGIS Pro layer, overkill for "is this ZCTA near an active volcano."
 
-**Extreme Heat uses gridMET alone for both sub-components**, not gridMET +
-nClimGrid-Daily as originally scoped -- both measure daily max temp, so
-using one consistent CONUS daily dataset for both the raw-threshold and
-heat-index components avoids pulling two redundant 10-year daily grids
-without compromising either metric. The Rothfusz regression was validated
-against NWS's published heat index chart (see `pipeline/sources/heat_index.py`)
-before the full run -- catching a transcription bug in one coefficient
-(off by 1000x) that would have silently produced nonsense values.
+**Severity weighting** (`ncei_storm_events.py`) is a v1 heuristic
+(EF-scale/magnitude where available, deaths/injuries otherwise) that's
+never been checked against the severe-weather literature, and it drives
+Severe Convective outright. Worth revisiting before treating scores as
+authoritative.
 
-**Seismic's volcano component** is a small, hand-curated table of CONUS
-Cascades/Yellowstone/Long Valley volcanic centers from the 2018 USGS
-National Volcanic Threat Assessment's "Very High"/"High" tiers (see
-`pipeline/sources/volcanoes.py`) -- USGS's own published GIS product for
-this ships only as a detailed ArcGIS Pro hazard-zone layer, overkill for
-"is this ZCTA near an active volcanic center."
+**Air Quality uses a fused monitor+model surface, apportioned by census
+tract.** EPA's raw AQS monitors cover only 31% of CONUS counties and are
+sited in cities, so using them directly would have interpolated most of
+the map and biased rural air upward. The CDC/EPA fused surface (EPA's
+Downscaler model) covers every tract, daily, instead. An earlier version
+apportioned from counties -- real, non-report data, but bucketed to
+3,109 counties, some spanning hundreds of km -- which created a genuine
+granularity artifact: two ZCTAs a few miles apart on opposite sides of a
+county line could land 60+ points apart from an otherwise continuous
+field. Switching to tract-level apportionment (~30x finer) dropped the
+worst neighboring-ZCTA gap to under 42, with none left above 60. Unlike
+Severe Convective, this category deliberately does *not* detrend against
+population density -- dense-urban PM2.5 elevation is a real physical
+signal (traffic, industry), not a reporting artifact, so it's left
+undamped (LA-metro ZCTAs average 94 vs. 77 for nearby rural high desert).
+Window is 2016-2020, shorter than other categories, because CDC's
+tract-level release doesn't extend as far as its county-level one.
 
-**Severity weighting** (see `pipeline/sources/ncei_storm_events.py`) is a v1
-heuristic (EF-scale / magnitude-based where available, deaths/injuries as a
-proxy otherwise), not a validated meteorological index. Worth revisiting
-against domain literature before treating scores as authoritative.
+**Composite score** is a weighted power-mean (exponent 3) of the 9
+category percentiles, not a plain average -- weights and exponent live in
+`pipeline/composite_weights.json`, so retuning either is a config change.
+A plain average let places with several 90s (e.g. Miami Beach: Flood 99,
+Hurricane 96) get dragged down by unrelated low categories; raising each
+score to a power before averaging lets already-high scores dominate
+(Miami Beach composites to 80 now, not 23). Drought, Seismic, and Air
+Quality carry a lighter weight (0.05 vs. 0.15 for the rest): Drought
+overlaps heavily with Wildfire/Heat's own signal, Seismic is a
+comparatively rare and localized threat nationally, and Air Quality is
+chronic exposure rather than acute-event risk. Hurricane is additionally
+scaled by 0.9, since its own contrast stretch (see the table above)
+would otherwise get amplified a second time by the power-mean.
 
-**Air Quality uses a fused surface, not raw monitor data.** EPA's AQS
-monitor summaries have the metric we want but only cover 949 of 3,109
-CONUS counties (31% of counties, 43% of land, 78% of population) -- two
-thirds of the map would have been interpolated, and because monitors are
-sited in cities that interpolation would have biased rural air *upward*.
-The CDC/EPA fused surface blends those same monitors with EPA's
-Downscaler model to give a daily value everywhere, so the layer is
-measured-and-modelled instead of measured in cities and guessed
-elsewhere. Being daily, it also preserves the "days above a threshold"
-metric that a satellite annual-mean product would have forced us to
-abandon.
+**Zip -> ZCTA mapping.** Most zip codes numerically match a ZCTA5 code
+directly, but ~9,200 PO-box-only and large-volume zips have no land area
+of their own and aren't ZCTAs -- 78381 (Rockport, TX) sits inside ZCTA
+78382, for example. A crosswalk (`build_zip_crosswalk.py` ->
+`zip_to_zcta.parquet`) resolves 7,135 zips that direct matching can't;
+direct matching still runs first as a fallback so newer zips still work.
+The detail panel shows both codes when they differ. (UDS Mapper was the
+obvious source for this crosswalk, but AAFP sunset it in 2024; HRSA
+publishes the same mapping, still maintained, as a plain .xlsx.)
 
-**Air Quality apportions from census tracts, not counties.** An earlier
-version of this category used CDC's county-level release of the same
-Downscaler model. That data was never a human-report signal -- unlike
-Winter Weather's old NCEI source, it's real monitor+model measurement --
-but bucketing it to 3,109 counties, some spanning hundreds of km, created
-a genuine granularity artifact: two ZCTAs a few miles apart on opposite
-sides of a county line could land 60+ points apart from an otherwise
-continuous field. CDC separately publishes the same Downscaler model at
-census-tract granularity (95,072 tracts, ~30x finer), which shrinks that
-artifact directly -- the largest neighbouring-ZCTA gap anywhere in the
-country dropped to under 42 points, with zero pairs left above 60, once
-apportionment moved to tracts. `scoring.spatial_smooth` still runs before
-ranking (tract lines are a real, if now much smaller, administrative
-boundary, unlike Winter Weather's zone lines, which were a fake signal
-removed by changing data source rather than smoothing).
-
-This category deliberately does **not** detrend against population
-density the way Severe Convective does. Dense-urban PM2.5 elevation is a
-real physical signal here -- traffic and industrial sources concentrate
-where people do -- not a reporting-density artifact, so it's left
-undamped. Confirmed directly: LA-metro ZCTAs average 94 vs. 77 for
-comparably-latitude rural high desert nearby, and the fused surface's own
-"days above threshold" field is used raw, never population-weighted.
-
-Window is 2016-2020, narrower than the county release's 2015-2021: CDC's
-tract-level Downscaler series doesn't extend as far as its county
-release. Both 2020-vintage: the tract dataset's FIPS predate Connecticut's
-2022 county-to-Planning-Region switch, and 2020 cartographic boundaries
-are already period-correct for that, so no legacy-geography join fix
-(needed for the old county-level source, see git history) is required
-here.
-
-**Composite score**: a weighted power mean (Holder mean, exponent 3), not a
-plain weighted average, of the 9 category percentiles -- both the weights
-and the exponent live in `pipeline/composite_weights.json`, not hardcoded,
-so retuning either is a config change. v1's plain equal-weighted average let
-a place with several categories in the 90s (e.g. Miami Beach: Flood=99,
-Hurricane=96) get dragged down to a mediocre composite (23) by unrelated low
-categories; raising each score to a power before averaging makes already-high
-scores dominate, so Miami Beach now composites to 80. Weights were also
-revised off equal: Drought, Seismic and Air Quality carry 0.05 against
-0.15 for the other six, so each contributes one third as much. Drought
-overlaps heavily with Wildfire/Heat's own signal in the same places;
-Seismic is a comparatively rare, localized threat nationally; and Air
-Quality is chronic-exposure rather than acute-event risk, so it belongs as
-a modifier rather than a driver. The values are relative -- composite.py
-normalizes by their sum, so they need not total 1.0.
-
-**Zip -> ZCTA mapping**: most USPS zip codes numerically match a ZCTA5
-code directly, but ~9,200 PO-box-only and large-volume-customer zips have
-no land area of their own, so their code is never a ZCTA -- 78381
-(Rockport TX) sits inside ZCTA 78382. Those used to 404. A crosswalk
-(`pipeline/build_zip_crosswalk.py` -> `data/zip_to_zcta.parquet`) now
-resolves them, covering **7,135 zips that direct matching cannot**;
-direct matching stays as a fallback so a zip newer than the crosswalk
-still works. The detail panel shows both the zip and the ZCTA it mapped
-to, so a redirected lookup is visible rather than silent.
-
-Source note: the obvious choice was UDS Mapper's crosswalk, which this
-project originally planned for, but the AAFP sunset UDS Mapper in early
-2024 and its download is gone. HRSA publishes the same mapping, still
-maintained, as a direct .xlsx with no auth.
-
-Failures are now distinguished rather than lumped into one "not found":
-`unknown_zip` (no such zip), `no_zcta` (real zip, but Census defines no
-ZCTA -- a handful of territory zips), and `outside_conus` (real zip and
-real ZCTA, just outside this project's scope, e.g. Honolulu). "We don't
-cover that" and "that isn't a zip" are different answers.
+Zip lookups distinguish three failure modes instead of one generic "not
+found": `unknown_zip` (not a real zip), `no_zcta` (real zip, but Census
+defines no ZCTA for it -- mostly territories), and `outside_conus` (real
+zip and ZCTA, just outside this project's scope, e.g. Honolulu).
 
 ## ZCTA geometry fixes
 
-Census TIGER's raw ZCTA5 polygons, if simplified naively (per-polygon
-`.simplify()`), produce slivers and overlaps at every shared boundary
-(adjacent polygons' edges drift apart independently) and don't cover 100%
-of CONUS land (some low-population land has no assigned ZCTA at all,
-showing as a blank hole). `pipeline/fetch_zcta_geometries.py` fixes both:
-
-1. **Topology-aware simplification** via `GeoSeries.simplify_coverage()`
-   (shapely/geopandas, requires GEOS coverage-simplify support) instead of
-   per-polygon simplify -- shared edges stay shared, no new slivers.
-2. **Gap fill**: the gap between the ZCTA union and a real land mask
-   (dissolved Census county boundaries, which do fully tile CONUS land) is
-   computed, and each gap piece is merged into its nearest ZCTA by boundary
-   distance.
+TIGER's raw ZCTA5 polygons, simplified naively, produce slivers and
+overlaps at every shared boundary (adjacent edges drift apart
+independently) and don't cover all of CONUS land (some low-population
+areas have no assigned ZCTA at all). `fetch_zcta_geometries.py` fixes
+both: topology-aware simplification via `GeoSeries.simplify_coverage()`,
+so shared edges stay shared, and a gap-fill pass that merges any
+uncovered land into its nearest ZCTA by boundary distance.
 
 ## The bottom-right panel
 
-Two panels share that slot, and which one shows is decided by whichever
-the user acted on most recently:
+Two views share this panel, and which one shows depends on what the user
+did most recently: click a **polygon** and you get its full category
+breakdown; pick a **layer** and you get a table of the top 3 riskiest zip
+codes for that hazard. Those ask different questions -- "what's it like
+*here*" vs. "where's this worst" -- so one selection can't answer the
+other. The table skips no-ZIP gap areas: they carry real scores, but
+"three unnamed patches of national forest" doesn't help anyone, and on
+some layers they're numerous enough near the top to crowd out every real
+zip code.
 
-* Selected a **polygon** (map click, zip search, or a row in the table
-  below) -> that polygon's full category breakdown.
-* Selected a **layer** -> a table of the three highest-risk zip codes for
-  that layer, each with its county/state.
-
-The reason for the swap is that the two selections ask different
-questions. Picking a layer asks "where is this hazard worst?", which the
-breakdown of whatever polygon happened to be clicked earlier cannot
-answer; picking a polygon asks "what is it like *here*?", which the
-national table cannot. Zip codes in the table are clickable and drill
-through to the breakdown, which also flips focus back to the polygon.
-
-The table excludes no-ZIP gap areas. They are real land carrying real
-scores, but "the three worst places for wildfire" naming three unnamed
-patches of national forest helps nobody, and on some layers they are
-numerous enough near the top to crowd out every actual zip code.
-
-**Ranking order**: score descending, ties broken by apportioned population
-descending, then zip ascending. A raw-metric tiebreak was tried first and
-turned out to be dead code: `percentile_rank()` derives score from raw via
-`rank(pct=True)`, a strictly monotonic map, so two rows can never share a
-score while differing in raw -- sorting by `[score, raw]` is identical to
-sorting by `[score]` alone. What looked like ties in the UI (three zips
-all reading "100.0") were never ties at all, just `round(score, 1)`
-collapsing distinct values (e.g. 99.9946 and 99.9917 both round to 100.0)
--- fixed by showing 5 decimal places in this table specifically. 3 still
-wasn't enough: hurricane has two ZCTAs in its top 25 that agree to 3
-decimals and only separate at the 4th.
-
-Real ties do exist, though, wherever the raw metric hits a hard ceiling --
-21 ZCTAs sit at exactly 100% of area in a flood zone, 25 at the air
-quality category's day-count cap. For those, population (areally
-apportioned from county totals the same way `severe_convective.py`
-apportions it for reporting-bias correction) is the tiebreak that means
-something: more people exposed ranks first. Zip code makes whatever's
-left fully deterministic.
-
-Each table row also carries a county name, computed the same way as the
-gap-area state attribution (dominant-area overlay against Census county
-polygons) -- so a result reads as "Miami-Dade County, FL" rather than a
-bare zip code.
+Ranking: score descending, then apportioned population, then zip
+ascending. Real ties happen wherever the raw metric hits a hard ceiling
+(21 ZCTAs sit at 100% flood-zone coverage, 25 at Air Quality's day-count
+cap) -- population is the tiebreak that means something there. The table
+shows 5 decimal places rather than the usual 1, since a few near-top
+ZCTAs only diverge past the 3rd or 4th decimal and would otherwise look
+like ties. Each row also carries a county name (dominant-area overlay
+against Census county polygons), so a result reads as "Miami-Dade
+County, FL" instead of a bare zip code.
 
 ## No-ZIP land areas
 
 Not all CONUS land has a ZIP code -- tidal marsh, barrier islands, and
-unaddressed parcels have no ZCTA5, and Census only assigns ZCTAs where
-mail is delivered. Those areas get their own `NOZIP-{hash}` polygons
-(never 5 digits, so they can never be confused with or searched as a real
-ZIP -- the hash is a content-derived id, not a serial number; see
-`subdivide_large_gaps._stable_gap_ids()` for why it has to be deterministic
-from geometry rather than assigned by row order). They are real geometry,
-so the category modules score them directly like any other polygon -- a
-marsh island off Charleston gets its own hurricane and flood exposure
-computed, not a placeholder. `fill_nozip_scores.py` runs afterwards purely
-as a safety net, filling any polygon a category legitimately had no data
-for (raster sources such as WHP have no value over open water) from a
-shared-boundary-weighted mean of its neighbours.
+unaddressed parcels get their own `NOZIP-{hash}` polygons instead (never
+5 digits, so they can't be confused with or searched as a real zip; the
+hash is content-derived and deterministic, not a serial number). These
+are real geometry and get scored like any other polygon -- a marsh
+island off Charleston gets its own real hurricane and flood exposure,
+not a placeholder. `fill_nozip_scores.py` only steps in when a category
+legitimately has no data for a polygon (a raster source like WHP has no
+value over open water), filling it from a boundary-weighted average of
+neighbors.
 
-Gap polygons are also clipped against open water for display
-(`clip_gap_water.py`, Natural Earth 10m ocean + lakes) -- the land mask
-they're derived from comes from Census county boundaries, not the
-basemap's own OSM-derived coastline, so without this a gap area could
-render as land-colored fill sitting on visible water. This is render-only:
-it edits `zcta_geometries_render.parquet` after
-`build_render_geometries.py`, never the analysis geometry a score is
-computed against, and a gap polygon keeps its original id even where
-clipping reshapes it into a MultiPolygon. A polygon left under
-`WATER_CLIP_SLIVER_AREA_M2` (0.05 km^2, chosen against this project's own
-"a ZCTA is a few pixels wide at CONUS zoom" render-visibility logic) is
-dropped rather than kept as an unrenderable remnant. Real ZCTAs are never
-touched by this step.
+A handful of cleanup passes run on this gap-polygon set before scoring,
+each one fixing a different problem found along the way:
 
-**A further, hand-reviewed list of gap polygons is dropped outright**
-(`remove_excluded_gaps.py`, `pipeline/excluded_gap_ids.csv`, run right
-after the water-clip step above) -- these are bigger than a render sliver
-and survive that cleanup, but expose a real scoring-pipeline bug rather
-than being cosmetic noise. `scoring.spatial_smooth` finds queen-contiguity
-neighbours across the *entire* geometry set, gap polygons included, and
-water-clipping shatters a coastline's gap area into many small adjacent
-slivers; if one sliver's overlapping census tract carried a spurious
-edge-effect PM2.5 estimate, one smoothing pass spread that value to every
-other sliver touching it. Found 225 of the first 226 candidates this way
-had avg_exceedance_days ~0 (near-perfect air quality) but a percentile
-score of ~100 (worst in CONUS) -- confirmed by a user directly, having
-spotted score clustering on small coastal fragments that didn't match
-their surroundings. Detection method (`flag_aq_coastal_slivers.py`):
-clip_gap_water.py removed more than 10% of the polygon's area as water,
-AND its score exceeds its real-ZCTA neighbours' mean by more than 25
-points -- confirmed before removing anything that even the worst-case
-merged cluster of adjacent excluded polygons (~18 km^2) stays well under
-`verify_layers.py`'s 25 km^2 hole-size limit. A polygon here is removed
-everywhere, not just from Air Quality -- geometry is shared across all 9
-categories, and these are tiny fragments (median ~0.27 km^2) contributing
-little to any of them. This runs before every category module in
-`refresh_all.py`, so excluded polygons are never scored at all on a full
-rebuild, rather than scored and then discarded. The exclusion list has
-grown across several rounds as more artifacts were found (226 from the
-automated air-quality detector, then 20 and 44 more from direct user
-review, then 25 and 55 more from a second, unrelated artifact below) --
-390 total.
-
-**A second, structurally different sliver artifact hits Severe
-Convective.** Unlike the Air Quality case, `severe_convective.py` never
-runs `spatial_smooth` -- its bug is in `scoring.population_bias_correct`
-instead. That function fits `log1p(severity) ~ log1p(population_density)`
-and keeps the residual as the ranked value, on the theory that a ZCTA
-reporting more events than its population predicts has a genuinely
-elevated hazard (see the Severe Convective section above). For a gap
-polygon with near-zero apportioned population -- exactly what a small,
-mostly-uninhabited coastal or lakeshore sliver has -- the regression's
-own "expected severity at zero density" baseline is at its lowest, so
-*any* real regional storm history within the 15-mile event buffer reads
-as a large positive residual. Found via user report (small slivers
-bordering water near Green Bay WI, then the same pattern near Lake Erie /
-Lake St. Clair and Lake Ontario): 78 polygons where
-`severe_convective_score` exceeded the mean of their real-ZCTA
-neighbours by more than 25 points, several scoring 95+ (worst in CONUS)
-off a handful of storm reports within 15 miles that any populated
-neighbour would have had entirely explained away by the density
-correction. Same removal mechanism and same 25 km^2 hole-size check as
-the Air Quality slivers (worst connected cluster here: ~12.9 km^2).
-
-**Some corrupted gap polygons get merged into a neighbour instead of
-dropped.** A handful of user-identified gap polygons (up to ~63 km^2 --
-far too big to delete under the 25 km^2 hole-size limit above) carried
-bad data of their own. `merge_gaps_into_zcta.py` (registry of target
-ZCTA -> gap-polygon ids, run right after `remove_excluded_gaps.py`)
-unions each one into an adjacent real ZCTA's existing geometry rather
-than deleting it, so the land area stays on the map instead of becoming
-a hole. The absorbing ZCTA's *score* is left untouched -- confirmed
-byte-identical before and after for all three targets used so far
-(03592, 03579, 04936) -- only its geometry grows; the gap polygon's own
-id and score row are removed. On a full rebuild this runs before any
-category scores anything, so the absorbing ZCTA's score there is instead
-computed fresh against its true, now-larger geometry, which is the
-correct reproducible behaviour rather than a special case.
-
-**A small registry of individual bad vertices is also patched**
-(`fix_zcta_geometry_defects.py`, run right after
-`fetch_zcta_geometries.py`, before anything else reads the file) -- for
-real ZCTAs, not gap polygons, where raw-TIGER digitization artifacts drag
-open water into the polygon. ZCTA 55605 (Grand Portage, MN) had a
-3-vertex southward excursion off its Lake Superior shoreline -- large
-enough to survive `simplify_coverage()`, since that only removes
-deviation *below* the simplification tolerance. Two of the three vertices
-could be safely removed (confirmed first that neither is a shared
-boundary vertex with any neighbouring ZCTA, so removing them can't desync
-a shared edge), each reconnecting the ring to its existing neighbours --
-no new points invented, and each validated individually since removing
-both in one step, or in the other order, produces a self-intersection
-against nearby fine coastline detail. The third (most northerly) vertex
-of the same excursion can't be removed this way at all -- any direct
-reconnection around it self-intersects -- so a small residual dip
-remains; fixing that would mean drawing a new point, which this
-"redraw with existing vertices only" approach deliberately doesn't do.
-Deliberately keyed on exact (lon, lat) coordinates, not a "remove the
-southernmost vertex" heuristic: a future TIGER vintage could reshape the
-ZCTA enough that a heuristic starts deleting a real vertex instead, so
-the fix raises rather than silently no-op'ing if a registered coordinate
-isn't found.
+- **Water clipping** (`clip_gap_water.py`) trims gap polygons against
+  real coastline (Natural Earth 10m ocean + lakes), since the Census
+  county land mask they're derived from doesn't match the basemap's own
+  coastline -- render-only, never touches scores or analysis geometry.
+  Slivers under 0.05 km^2 left behind get dropped rather than kept as
+  unrenderable specks.
+- **Exclusion list** (`excluded_gap_ids.csv`, `remove_excluded_gaps.py`)
+  drops gap polygons that survive water-clipping but turned out to
+  expose real scoring bugs rather than being cosmetic noise. Two
+  separate root causes surfaced this way: `spatial_smooth` (used by Air
+  Quality) finds neighbors across the *entire* geometry set, gap
+  polygons included, so a single sliver with a bad tract-level PM2.5
+  read could spread that value to every other sliver touching it; and
+  `population_bias_correct` (used by Severe Convective) gives a
+  near-zero-population sliver an artificially low "expected" baseline,
+  so any real regional storm history nearby reads as an extreme outlier.
+  Both were caught the same way -- comparing a gap polygon's score
+  against its real-ZCTA neighbors' mean, flagging anything more than 25
+  points over -- and confirmed safe to remove by checking the resulting
+  hole stays under `verify_layers.py`'s 25 km^2 limit. This runs before
+  every category module on a full rebuild, so excluded polygons are
+  never scored at all. 409 excluded so far, across several rounds as
+  more were found (roughly half from an automated detector, the rest
+  from direct review).
+- **Merging** (`merge_gaps_into_zcta.py`) handles gap polygons too big to
+  just delete (up to ~63 km^2) that turned out to carry corrupted data of
+  their own. Their area gets unioned into an adjacent real ZCTA's
+  geometry instead of dropped, so there's no hole; the absorbing ZCTA's
+  score is left completely untouched, only its geometry grows.
+- **Vertex fixes** (`fix_zcta_geometry_defects.py`) patch individual bad
+  vertices in *real* ZCTAs (not gap polygons) left over from raw TIGER
+  digitization errors -- e.g. ZCTA 55605 (Grand Portage, MN) had a vertex
+  28km out into Lake Superior, dragging a wedge of open water into the
+  polygon. Fixed by removing the offending vertices and reconnecting the
+  ring to points already there (no new points invented), keyed on exact
+  coordinates rather than a "remove the southernmost point" heuristic --
+  a future TIGER update could reshape the ZCTA enough that a heuristic
+  starts deleting the wrong vertex instead.
 
 ## Map rendering
 
-Basemap is a trimmed OpenFreeMap "liberty" vector style (~19 layers of ~111
-kept -- interstates, park/forest/water/urban landuse, minimal else; see
-`scripts/build_basemap_style.py`) -- free, no API key, no rate limit.
-`tippecanoe` (vector tiles) is not available in this Windows dev
-environment, so category layers ship as simplified GeoJSON instead.
+Basemap is a trimmed OpenFreeMap "liberty" vector style (~19 of ~111
+layers kept: interstates, park/forest/water/urban landuse) -- free, no
+API key, no rate limit. `tippecanoe` isn't available in this Windows dev
+environment, so category layers ship as simplified GeoJSON instead of
+vector tiles (GDAL's `ogr2ogr`, already part of this environment, can
+generate real MVT/MBTiles output as an alternative worth revisiting).
 
-Render geometry is kept separate from analysis geometry
-(`build_render_geometries.py` -> `zcta_geometries_render.parquet`).
-Scoring needs accurate polygons; the browser does not, since at CONUS zoom
-a ZCTA is a few pixels wide. Simplifying once for display cut each layer
-from 2.25M vertices to 1.11M, and layers are written with the GeoJSON
-writer's `COORDINATE_PRECISION=5` (~1m) rather than 14 decimal places of
-sub-micrometer noise. Together: **101MB -> 34MB per layer.**
+Render geometry is simplified separately from analysis geometry
+(`build_render_geometries.py`), since scoring needs precision the
+browser doesn't -- a ZCTA is a few pixels wide at CONUS zoom. Layers are
+pre-gzipped at pipeline build time and served compressed to any client
+that supports it (~40MB -> ~9.7MB per layer, about 24%). Compression
+happens once at build, not per request: large files go out through
+uvicorn's zero-copy file sending and never reach body-based middleware
+like `GZipMiddleware` at all, and compressing 40MB live would cost
+real blocking CPU on every layer switch. The next real performance step
+would be vector tiles, which would fetch only the polygons in view
+instead of the whole country on every layer switch.
 
-Layers are then pre-gzipped at pipeline write time and served as the
-compressed sibling to any client sending `Accept-Encoding: gzip`, taking
-**34MB -> 8.4MB on the wire (24.6%)**. Compression happens once during the
-build, not per request, for two reasons: `FileResponse` sends large files
-through uvicorn's zero-copy `pathsend`, so they never reach body-based
-middleware like `GZipMiddleware` at all; and compressing 34MB live would
-cost 1-3s of blocking CPU on every layer switch, stalling the event loop
-for concurrent requests. `GZipMiddleware` is still registered, but only
-earns its keep on the small dynamic JSON endpoints.
-
-Measured on localhost, a layer switch is ~190ms click-to-bytes-delivered
-with **zero main-thread blocking** -- MapLibre parses GeoJSON on a worker,
-so the UI stays responsive while 32.6MB is decoded. Localhost has no
-bandwidth ceiling, so the compression matters far more in the real world:
-on a 25 Mbps connection the same payload drops from roughly 11s to 2.7s.
-
-Compression is where the remaining easy wins have run out; the next real
-step would be vector tiles (MVT/PMTiles), which would fetch only the
-polygons in view instead of all 38k every time.
-
-Two rendering traps worth knowing about, both of which silently punched
-holes in the map before being caught:
-  * `shapely.set_precision()` snaps to a grid and *deletes* polygons
-    smaller than that grid. Use the writer's `COORDINATE_PRECISION`
-    instead -- it only formats output, leaving geometry intact.
-  * A polygon with a null score renders at the bottom of the colour ramp,
-    which is visually identical to a hole. `write_layer_geojson` now
-    raises on any missing score or empty geometry rather than
-    `fillna(0)`-ing the problem out of sight.
-
-`pipeline/verify_layers.py` checks both, plus that the polygons actually
-blanket CONUS land (measured against the Census county land mask), and
-reports per-layer vertex count and file size.
+Two rendering traps worth knowing about: `shapely.set_precision()` snaps
+to a grid and *deletes* polygons smaller than it, rather than just
+rounding their coordinates -- use the GeoJSON writer's
+`COORDINATE_PRECISION` instead, which only formats output and leaves
+geometry intact. And a polygon with a null score renders at the bottom
+of the color ramp, visually identical to a hole -- `write_layer_geojson`
+raises on any missing score or empty geometry rather than silently
+filling it in. `pipeline/verify_layers.py` checks both, plus that the
+polygons actually blanket CONUS land, and reports per-layer vertex count
+and file size.
 
 The map is bounded to CONUS + ~5deg padding (not the whole globe) and fit
 to that box on load, so the initial view is always CONUS-centered
