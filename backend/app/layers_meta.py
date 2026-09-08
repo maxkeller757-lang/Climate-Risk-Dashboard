@@ -32,7 +32,7 @@ LAYERS = [
     {
         "category": "winter_weather",
         "name": "Winter Weather",
-        "description": "Winter storm, ice storm, heavy snow, and blizzard exposure (NCEI Storm Events, 2015-2024).",
+        "description": "Avg days/year with measurable precipitation and max temp at or below 32F (gridMET, 2015-2024).",
         "color": "#6EC6E8",
     },
     {
@@ -56,7 +56,7 @@ LAYERS = [
     {
         "category": "air_quality",
         "name": "Air Quality",
-        "description": "Average days per year with PM2.5 above the AQI 100 threshold (CDC/EPA fused daily surface, 2015-2021).",
+        "description": "Average days per year with PM2.5 above the AQI 100 threshold (CDC/EPA fused census-tract surface, 2016-2020).",
         "color": "#9A9A94",
     },
     {

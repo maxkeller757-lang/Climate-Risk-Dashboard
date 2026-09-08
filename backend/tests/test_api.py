@@ -80,6 +80,26 @@ def test_zcta_detail_matches_zip_detail_for_direct_match():
     assert zcta_res["zip"] is None
 
 
+def test_zcta_geometry_returns_valid_geojson_feature():
+    # Exercises the shapely-based WKB decode path in data_access.py
+    # (load_zcta_geometry_feature) directly -- there's no geopandas
+    # involved here anymore, so this is real coverage for that rewrite,
+    # not just a shape check.
+    res = client.get("/api/zcta/73160/geometry")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["type"] == "Feature"
+    assert body["geometry"]["type"] in ("Polygon", "MultiPolygon")
+    coords = body["geometry"]["coordinates"]
+    assert len(coords) > 0
+    assert body["properties"]["zcta5"] == "73160"
+
+
+def test_zcta_geometry_unknown_zcta_404s():
+    res = client.get("/api/zcta/00000/geometry")
+    assert res.status_code == 404
+
+
 def test_layer_top_zones_shape_and_state():
     res = client.get("/api/layer/hurricane/top")
     assert res.status_code == 200
@@ -178,14 +198,3 @@ def test_layer_top_zones_unknown_category_404s():
     assert res.status_code == 404
 
 
-def test_unknown_layer_category_404s():
-    res = client.get("/api/layer/not_a_real_category")
-    assert res.status_code == 404
-
-
-def test_generated_layer_returns_geojson():
-    res = client.get("/api/layer/severe_convective")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["type"] == "FeatureCollection"
-    assert len(body["features"]) > 30000  # full CONUS ZCTA coverage

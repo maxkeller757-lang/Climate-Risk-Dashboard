@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "data/{zcta_geometries_render.parquet,zip_scores.parquet,zip_to_zcta.parquet}"
+    }
+  }
+}

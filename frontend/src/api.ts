@@ -29,8 +29,26 @@ export async function fetchLayers(): Promise<LayerMeta[]> {
   return res.json();
 }
 
+// Static file, not an API call: these are tens of MB each, well past what
+// a serverless function response can return (Vercel included), so they're
+// served directly from static hosting instead of through the backend.
+//
+// Base URL is build-time configurable via VITE_LAYERS_BASE_URL, unset in
+// local dev -- there it defaults to /layers/*.geojson, populated by
+// scripts/copy-layers.mjs (predev/prebuild) from the pipeline's
+// data/layers/ output and served by Vite's own static file handling. A
+// deployed build sets VITE_LAYERS_BASE_URL to the Cloudflare R2 bucket
+// these files are uploaded to (see the vercel-r2-deploy-prep branch),
+// since Vercel's own free-tier bandwidth is a shared, capped allowance
+// that this kind of traffic would eat into, unlike R2's uncapped egress.
+const LAYERS_BASE_URL = (import.meta.env.VITE_LAYERS_BASE_URL as string | undefined)?.replace(
+  /\/$/,
+  "",
+);
+
 export function layerGeoJsonUrl(category: string): string {
-  return `${BASE}/layer/${category}`;
+  const base = LAYERS_BASE_URL ?? "/layers";
+  return `${base}/${category}.geojson`;
 }
 
 export async function fetchZipExists(zip: string): Promise<boolean> {
