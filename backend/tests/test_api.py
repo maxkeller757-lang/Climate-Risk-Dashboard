@@ -137,15 +137,23 @@ def test_layer_top_zones_score_precision_distinguishes_near_ties():
     assert len(set(scores)) == len(scores)
 
 
-def test_layer_top_zones_5dp_separates_the_near_duplicate_case():
-    # The concrete case that motivated 5dp: 28512 (99.840351) and 27943
-    # (99.839530) both round to 99.840 at 3dp -- indistinguishable and
-    # wrongly reading as a tie -- but are genuinely different scores.
+def test_layer_top_zones_5dp_confirms_real_ties_not_rounding_artifacts():
+    # Hurricane switched from a HURDAT2 track-proximity model (with a
+    # hand-tuned S-curve that produced fine-grained near-duplicate scores
+    # that only 5dp could tell apart) to FEMA NRI's per-census-tract
+    # Expected Annual Loss Rate, area-weighted onto ZCTAs -- several North
+    # Carolina ZCTAs now share tracts closely enough to land on the exact
+    # same score, a genuine tie rather than a false one hidden by
+    # insufficient rounding. 5dp still matters here: it's what lets a real
+    # tie (this block) and a real, comfortably-separated neighbour
+    # (28511) both read correctly instead of everything blurring together.
     body = client.get("/api/layer/hurricane/top?limit=25").json()
     by_zcta = {z["zcta"]: z["score"] for z in body["zones"]}
-    assert by_zcta["28512"] == pytest.approx(99.84035, abs=1e-5)
-    assert by_zcta["27943"] == pytest.approx(99.83953, abs=1e-5)
-    assert by_zcta["28512"] != by_zcta["27943"]
+    tied = {"27915", "27920", "27936", "27943", "27968", "27972", "27982"}
+    for zcta in tied:
+        assert by_zcta[zcta] == pytest.approx(99.97898, abs=1e-5)
+    assert by_zcta["28511"] == pytest.approx(99.99099, abs=1e-5)
+    assert by_zcta["28511"] != by_zcta["27943"]
 
 
 def test_layer_top_zones_tiebreak_is_population_then_zcta():

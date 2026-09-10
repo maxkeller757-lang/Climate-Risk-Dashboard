@@ -26,7 +26,7 @@ LAYERS = [
     {
         "category": "hurricane",
         "name": "Hurricane / Tropical",
-        "description": "Wind-speed-weighted exposure from NOAA HURDAT2 track proximity, 2015-2024.",
+        "description": "FEMA National Risk Index hurricane expected annual building loss rate, per census tract.",
         "color": "#00707A",
     },
     {
