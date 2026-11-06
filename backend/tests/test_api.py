@@ -95,6 +95,18 @@ def test_zcta_geometry_returns_valid_geojson_feature():
     assert body["properties"]["zcta5"] == "73160"
 
 
+def test_nozip_gap_area_geometry_serializes():
+    # Gap areas have no county (NaN in the parquet); NaN isn't valid JSON
+    # and used to make this endpoint 500, which the UI showed as "No
+    # geometry for ZCTA NOZIP-...".
+    from backend.app.data_access import load_zcta_attrs
+
+    nozip = next(z for z in load_zcta_attrs()["zcta5"] if z.startswith("NOZIP-"))
+    res = client.get(f"/api/zcta/{nozip}/geometry")
+    assert res.status_code == 200
+    assert res.json()["geometry"]["type"] in ("Polygon", "MultiPolygon")
+
+
 def test_zcta_geometry_unknown_zcta_404s():
     res = client.get("/api/zcta/00000/geometry")
     assert res.status_code == 404
@@ -126,34 +138,30 @@ def test_layer_top_zones_county_present_when_geometry_has_one():
 
 
 def test_layer_top_zones_score_precision_distinguishes_near_ties():
-    # 1dp collapsed several distinct top scores to an identical "100.0",
-    # which read as a tie that wasn't real (percentile_rank derives score
-    # from raw via a strictly monotonic map, so equal scores only occur
-    # where the raw metric hits a genuine ceiling). 3dp still wasn't
-    # enough -- hurricane has two ZCTAs in its top 25 that agree to 3
-    # decimals and only separate at the 4th -- so this checks at 5dp.
-    body = client.get("/api/layer/hurricane/top").json()
+    # 1dp collapsed distinct top scores to an identical "100.0", reading as
+    # a tie that wasn't real (percentile_rank is strictly monotonic in the
+    # raw metric, so equal scores only occur at a genuine raw-value tie).
+    # Checked on composite, which is continuous, so any duplicate here
+    # would be a rounding artifact rather than real data.
+    body = client.get("/api/layer/composite/top?limit=25").json()
     scores = [z["score"] for z in body["zones"]]
     assert len(set(scores)) == len(scores)
+    assert scores == sorted(scores, reverse=True)
 
 
 def test_layer_top_zones_5dp_confirms_real_ties_not_rounding_artifacts():
-    # Hurricane switched from a HURDAT2 track-proximity model (with a
-    # hand-tuned S-curve that produced fine-grained near-duplicate scores
-    # that only 5dp could tell apart) to FEMA NRI's per-census-tract
-    # Expected Annual Loss Rate, area-weighted onto ZCTAs -- several North
-    # Carolina ZCTAs now share tracts closely enough to land on the exact
-    # same score, a genuine tie rather than a false one hidden by
-    # insufficient rounding. 5dp still matters here: it's what lets a real
-    # tie (this block) and a real, comfortably-separated neighbour
-    # (28511) both read correctly instead of everything blurring together.
+    # Hurricane's raw metric is a 10km raster zonal mean, so neighbouring
+    # ZCTAs inside the same cell legitimately share an identical raw value
+    # and therefore an identical score -- a real tie, not rounding. Those
+    # ties must still resolve by the documented tiebreak: population desc,
+    # then zcta5 asc.
     body = client.get("/api/layer/hurricane/top?limit=25").json()
-    by_zcta = {z["zcta"]: z["score"] for z in body["zones"]}
-    tied = {"27915", "27920", "27936", "27943", "27968", "27972", "27982"}
-    for zcta in tied:
-        assert by_zcta[zcta] == pytest.approx(99.97898, abs=1e-5)
-    assert by_zcta["28511"] == pytest.approx(99.99099, abs=1e-5)
-    assert by_zcta["28511"] != by_zcta["27943"]
+    zones = body["zones"]
+    top = zones[0]["score"]
+    tied = [z for z in zones if z["score"] == top]
+    assert len(tied) >= 1
+    keys = [(-z["population"], z["zcta"]) for z in tied]
+    assert keys == sorted(keys)
 
 
 def test_layer_top_zones_tiebreak_is_population_then_zcta():

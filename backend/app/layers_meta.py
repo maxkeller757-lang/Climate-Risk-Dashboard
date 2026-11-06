@@ -26,7 +26,7 @@ LAYERS = [
     {
         "category": "hurricane",
         "name": "Hurricane / Tropical",
-        "description": "FEMA National Risk Index hurricane expected annual building loss rate, per census tract.",
+        "description": "Tropical cyclone wind speed with a 50-year return period (STORM synthetic-track dataset, present-day climate).",
         "color": "#00707A",
     },
     {

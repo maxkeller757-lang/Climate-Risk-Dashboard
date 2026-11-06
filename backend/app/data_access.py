@@ -90,7 +90,9 @@ def load_zcta_geometry_feature(zcta5: str) -> dict | None:
         return None
     row = row.iloc[0]
     geom = shapely.from_wkb(row["geometry"])
-    properties = row.drop("geometry").to_dict()
+    # NaN (e.g. no county for a no-ZIP gap area) is not valid JSON and makes
+    # FastAPI 500 on serialization; send null instead.
+    properties = {k: (None if pd.isna(v) else v) for k, v in row.drop("geometry").items()}
     return {"type": "Feature", "geometry": shapely.geometry.mapping(geom), "properties": properties}
 
 
