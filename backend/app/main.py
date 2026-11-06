@@ -9,7 +9,7 @@ this API, since they're tens of MB each and a serverless function
 response is capped well below that on most platforms (Vercel included).
 This app only ever answers small, dynamic, single-ZCTA/zip-code lookups.
 
-Run: pixi run uvicorn backend.app.main:app --reload --port 8003
+Run: pixi run uvicorn backend.app.main:app --reload --port 8000
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -175,8 +175,8 @@ def get_layer_top_zones(category: str, limit: int = 3):
                 # 5dp: the top of a percentile scale is dense enough that
                 # 1dp collapses distinct ZCTAs to an identical "100.0",
                 # which reads as a tie that isn't really there. 3dp still
-                # wasn't enough -- e.g. hurricane has two ZCTAs in its top
-                # 25 that agree to 3 decimals and only separate at the 4th.
+                # wasn't enough: distinct ZCTAs near the top can agree to 3
+                # decimals and only separate at the 4th.
                 "score": round(float(getattr(row, score_col)), 5),
             }
             for row in top.itertuples()

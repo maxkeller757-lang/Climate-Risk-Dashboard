@@ -1,5 +1,5 @@
 """
-Phase 4: composite score, a weighted power mean (Holder mean) of the 8
+Phase 4: composite score, a weighted power mean (Holder mean) of the 9
 category percentile scores -- not a plain weighted average. Weights and
 the exponent both live in composite_weights.json, not hardcoded here, so
 reweighting or re-tuning the exponent later is a config change, not a
@@ -8,7 +8,7 @@ code change.
 Why a power mean: a plain weighted average lets a place with several
 categories in the 90s get dragged down to a mediocre composite by
 unrelated low categories (e.g. Miami Beach: Flood=99, Hurricane=96, but a
-plain average with the other 6 categories landed around 42). Raising each
+plain average with the other categories landed around 42). Raising each
 score to a power p>1 before averaging (then taking the p-th root back to
 the 0-100 scale) makes already-high scores contribute disproportionately
 more, so multiple compounding hazards produce a composite that actually

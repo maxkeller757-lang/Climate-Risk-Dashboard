@@ -54,29 +54,6 @@ def intersect_count(zcta_gdf: gpd.GeoDataFrame, features_gdf: gpd.GeoDataFrame) 
     return result
 
 
-def coast_distance_miles(zcta_gdf: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Distance from each ZCTA centroid to the nearest edge of the CONUS
-    land mask (dissolved Census county boundaries -- no new data pulled,
-    reuses the same source as the ZCTA gap-fill step). In practice this is
-    overwhelmingly a true coastline distance: the land mask's edge also
-    includes the Canada/Mexico land border, but ZCTAs near that border and
-    far from any real hurricane track already have ~zero raw exposure, so
-    treating that border as "coast" there doesn't inflate anything -- a
-    near-zero score divided by anything is still near zero. Used by
-    Hurricane's coastal concentration.
-
-    Returns [zcta5, coast_distance_miles].
-    """
-    from sources.census_counties import load_counties
-
-    land_boundary = load_counties().to_crs(EQUAL_AREA_CRS).union_all().boundary
-    centroids = zcta_centroids(zcta_gdf)
-    distance_m = centroids.geometry.distance(land_boundary)
-    return pd.DataFrame(
-        {"zcta5": centroids["zcta5"], "coast_distance_miles": distance_m / MILES_TO_METERS}
-    )
-
-
 def zcta_centroids(zcta_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Centroid of each ZCTA polygon, computed in an equal-area CRS so the
     centroid position and any subsequent buffering are metrically accurate."""
@@ -136,7 +113,7 @@ def distance_weighted_score(
     """For each ZCTA, sum weight_col * (1 - distance/radius_miles) over all
     points within radius_miles of the ZCTA centroid -- a linear-decay
     proximity weighting, vs. buffer_point_score's flat in-or-out count.
-    Used by Hurricane (HURDAT2 track points, wind-speed weighted).
+    Used by Seismic's volcanic-threat component.
 
     Returns [zcta5, exposure_score], one row per ZCTA (0 if none in range).
     """

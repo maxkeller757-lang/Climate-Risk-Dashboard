@@ -5,7 +5,7 @@ serverless function -- this just re-exports the real app unchanged so
 there's exactly one FastAPI app definition (backend/app/main.py), not a
 copy that could drift from what runs locally under uvicorn.
 
-vercel.json routes /api/* here.
+Vercel auto-detects FastAPI from requirements.txt and routes requests to it.
 """
 import sys
 from pathlib import Path

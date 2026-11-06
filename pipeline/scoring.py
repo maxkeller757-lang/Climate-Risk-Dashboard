@@ -212,27 +212,6 @@ def population_bias_correct(
     return df
 
 
-def contrast_stretch(scores: pd.Series, power: float = 2.5) -> pd.Series:
-    """S-curve contrast stretch on an already-0-100 percentile score:
-    pushes above-median values higher and below-median values lower, with
-    fixed points at 0, 50, and 100 (a ZCTA already at the median stays
-    there). Higher `power` concentrates more aggressively toward the
-    extremes. Used to make a category read as more regionally concentrated
-    without pulling new data -- e.g. Hurricane, where the underlying
-    percentile rank already separates coastal from interior ZCTAs but the
-    spec called for the map to read as more sharply concentrated on the
-    coast.
-
-    This must run AFTER percentile_rank, and nothing should re-rank its
-    output: percentile-ranking a monotonic transform of a uniform variable
-    just undoes the transform (rank order is unchanged, so re-ranking
-    reproduces the original uniform distribution).
-    """
-    u = (scores / 100.0).clip(1e-9, 1 - 1e-9)
-    y = u**power / (u**power + (1 - u) ** power)
-    return y * 100.0
-
-
 def upsert_zip_scores(category: str, scores: pd.DataFrame, raw_col: str) -> None:
     """Merge one category's [zcta5, raw_col, score] into the shared
     zip_scores table (data/zip_scores.parquet), creating it on first call

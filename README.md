@@ -78,15 +78,15 @@ days/year) comparable on one scale.
 | Winter Weather | gridMET daily precipitation + max temp | 2015-2024 | Avg days/year with >=0.01in precip and max temp <=32F |
 | Flood | FEMA NFHL (live ArcGIS service) | current | % of ZCTA area in SFHA Zone A/AE/V/VE |
 | Wildfire | USFS Wildfire Hazard Potential + MTBS burn perimeters | latest model + 2015-2024 | 70% zonal-mean WHP + 30% historical burn intersection count |
-| Hurricane | NOAA HURDAT2 | 2015-2024 | Wind-speed-squared-weighted track point proximity, 150mi linear decay |
+| Hurricane | STORM synthetic tropical cyclone dataset (10,000 simulated years, present-day climate) | model output | Zonal-mean max wind speed at a 50-year return period; wind only, no building-value or loss modeling |
 | Drought | U.S. Drought Monitor county statistics | 2015-2024 | Average % time in D0-or-worse, area-weighted county -> ZCTA |
 | Extreme Heat | gridMET daily max temp + min RH | 2015-2024 | 60% days >90F, 40% days heat index >100F (Rothfusz regression) |
 | Seismic | USGS National Seismic Hazard Model (2018) + Volcanic Threat Assessment | latest model | 80% zonal-mean PGA + 20% distance-decayed volcano threat |
 | Air Quality | CDC/EPA fused daily census-tract PM2.5 surface | 2016-2020 | Avg days/year with tract mean PM2.5 above 35.4 ug/m3 (AQI > 100) |
 
-WHP and the USGS seismic model are point-in-time model outputs, not event
-histories, so they use the latest published version instead of a rolling
-2015-2024 window.
+WHP, the USGS seismic model, and the STORM hurricane dataset are model
+outputs, not event histories, so they use the latest published version
+instead of a rolling 2015-2024 window.
 
 **Winter Weather was rebuilt off NCEI Storm Events onto gridMET.** The
 old scores clustered oddly around Dallas and had hard cliffs at state
@@ -172,9 +172,7 @@ score to a power before averaging lets already-high scores dominate
 Quality carry a lighter weight (0.05 vs. 0.15 for the rest): Drought
 overlaps heavily with Wildfire/Heat's own signal, Seismic is a
 comparatively rare and localized threat nationally, and Air Quality is
-chronic exposure rather than acute-event risk. Hurricane is additionally
-scaled by 0.9, since its own contrast stretch (see the table above)
-would otherwise get amplified a second time by the power-mean.
+chronic exposure rather than acute-event risk.
 
 **Zip -> ZCTA mapping.** Most zip codes numerically match a ZCTA5 code
 directly, but ~9,200 PO-box-only and large-volume zips have no land area
