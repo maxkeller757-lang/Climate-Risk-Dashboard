@@ -7,61 +7,62 @@ interface Row {
 const ROWS: Row[] = [
   {
     name: "Severe Convective",
-    source: "NCEI Storm Events (Tornado/Hail/Thunderstorm Wind), 2015-2024",
+    source: "NCEI Storm Events (tornado, hail, thunderstorm wind), 2015-2024",
     method:
-      "15mi buffer around ZCTA centroid, severity-weighted event count, then detrended against Census population density to correct for the fact that report density tracks population as much as it tracks real storm activity.",
+      "Counts storm reports within 15 miles of each ZCTA's center, weighted by severity. We then adjust for population density, because more people means more reports, not necessarily more storms.",
   },
   {
     name: "Winter Weather",
-    source: "gridMET daily precipitation + max temp, 2015-2024",
+    source: "gridMET daily precipitation and max temperature, 2015-2024",
     method:
-      "Average days per year with at least 0.01in liquid-equivalent precipitation and a max temperature at or below 32F. Previously used NCEI Storm Events (a human-report database), but report density tracked population and each NWS office's own reporting culture as much as real winter weather -- it showed up as scores clustering around Dallas and hard cliffs at state lines. gridMET is model+station-blended physical measurement with no human reporting involved, and a continuous grid has no zone boundary for that kind of artifact to form on.",
+      "The average number of days per year with at least 0.01 inches of precipitation and a high at or below 32F. It comes from physical measurements rather than human reports, so reporting habits don't skew it.",
   },
   {
     name: "Flood",
-    source: "FEMA National Flood Hazard Layer (live ArcGIS service)",
-    method: "% of ZCTA area inside a Special Flood Hazard Area (Zone A/AE/V/VE).",
+    source: "FEMA National Flood Hazard Layer",
+    method: "The share of each ZCTA's area inside a Special Flood Hazard Area (Zone A, AE, V or VE).",
   },
   {
     name: "Wildfire",
     source: "USFS Wildfire Hazard Potential (2020) + MTBS burn perimeters, 2015-2024",
     method:
-      "70% zonal-mean Wildfire Hazard Potential (point-in-time model) + 30% count of historical burns intersecting the ZCTA.",
+      "70% average Wildfire Hazard Potential across the ZCTA, plus 30% the number of past burns that touched it.",
   },
   {
     name: "Hurricane / Tropical",
-    source: "NOAA NHC HURDAT2 best-track database, 2015-2024",
+    source: "STORM synthetic tropical cyclone dataset (present-day climate)",
     method:
-      "Wind-speed-squared-weighted exposure from track point proximity, 150mi linear decay. The resulting percentile then gets an S-curve contrast stretch, pushing coastal areas higher and interior areas lower so the layer reflects how sharply hurricane risk falls off inland. That makes this the one score that is not a plain percentile, which is why the composite scales it back down (see Composite).",
+      "The average maximum wind speed you'd expect once every 50 years, taken from 10,000 years of simulated storms. It measures wind alone, with no building values or loss estimates mixed in.",
   },
   {
     name: "Drought",
     source: "U.S. Drought Monitor county statistics, 2015-2024",
-    method: "Average % of time in D0-or-worse drought, area-weighted from county to ZCTA.",
+    method:
+      "The average share of time spent in moderate-or-worse drought (D0 and above), spread from counties onto ZCTAs by area.",
   },
   {
     name: "Extreme Heat",
-    source: "gridMET daily max temp + min relative humidity, 2015-2024",
+    source: "gridMET daily max temperature and minimum relative humidity, 2015-2024",
     method:
-      "Blend of 60% avg days/year >90F and 40% avg days/year with NWS heat index (Rothfusz regression) >100F.",
+      "A blend: 60% average days per year above 90F and 40% average days per year with a heat index above 100F.",
   },
   {
     name: "Seismic",
-    source: "USGS National Seismic Hazard Model (2018) + National Volcanic Threat Assessment",
+    source: "USGS National Seismic Hazard Model (2018) + Volcanic Threat Assessment",
     method:
-      "80% zonal-mean PGA (2% probability of exceedance in 50yr, point-in-time model) + 20% distance-decayed proximity to CONUS volcanic centers.",
+      "80% expected peak ground shaking (2% chance of being exceeded in 50 years) and 20% how close the ZCTA is to a volcanic center.",
   },
   {
     name: "Air Quality",
-    source: "CDC/EPA fused daily census-tract PM2.5 surface, 2016-2020",
+    source: "CDC/EPA fused daily census-tract PM2.5, 2016-2020",
     method:
-      "Average days per year with census-tract mean PM2.5 above 35.4 ug/m3 -- the point where the 24-hour AQI passes 100 into 'Unhealthy for Sensitive Groups'. Uses the fused monitor+model surface rather than raw EPA monitor data, because monitors exist in only 31% of CONUS counties and are sited in cities, which would have left most of the map interpolated and biased rural air upward. Apportioned at census-tract granularity (~30x finer than county) to avoid artificial cliffs at county lines; dense-urban PM2.5 elevation is left undamped since it's a real signal, not a reporting artifact. Window is 2016-2020, shorter than other categories, because CDC's tract-level release doesn't extend as far as its county-level one.",
+      "The average number of days per year when PM2.5 tops 35.4 ug/m3, the point where the AQI reaches \"Unhealthy for Sensitive Groups.\" The data blends monitors with models, so rural areas without monitors are still covered. It runs 2016-2020 because CDC's tract-level data doesn't go further.",
   },
   {
     name: "Composite",
     source: "Derived",
     method:
-      "Weighted power-mean (exponent 3) of the 9 category percentiles, not a plain average -- categories that are already high contribute disproportionately more, so places with several compounding hazards (e.g. flood + hurricane) score noticeably higher than a plain average would. Drought, Seismic and Air Quality carry a lighter weight (5% each vs. 15%): Drought overlaps heavily with Wildfire/Heat's own signal, Seismic is a comparatively rare and localized threat nationally, and Air Quality is chronic exposure rather than acute-event risk. Hurricane is additionally scaled by 0.9 here, because its contrast stretch (see above) leaves it on a different scale from the other percentiles and the power-mean would otherwise amplify that a second time -- the layer itself still shows the full stretched score. See composite_weights.json.",
+      "A weighted power mean (exponent 3) of the nine category scores. Unlike a plain average, it lets places with several serious hazards score higher. Drought, Seismic and Air Quality count for 5% each, and the other six for 15% each.",
   },
 ];
 
@@ -83,20 +84,12 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="mb-4 text-sm text-gray-600">
-          <strong className="text-gray-800">
-            These scores reflect historical hazard patterns, not real-time or
-            forecasted conditions.
-          </strong>{" "}
-          Every score is a 0-100 percentile rank of a raw metric, computed once offline
-          from recent-years historical data (2015-2024 for most categories, shorter for
-          a couple noted below) by{" "}
-          <code className="rounded bg-gray-100 px-1">pipeline/</code> and never
-          recomputed at request time -- there is no live feed behind this map, and it
-          will not reflect a storm, fire, or flood happening today. Percentile ranking
-          makes categories with wildly different raw units (event counts, % area,
-          days/year) comparable on the same scale. Wildfire Hazard Potential and the
-          seismic hazard model are point-in-time model outputs, not event histories, so
-          they use the latest published model version instead of a multi-year window.
+          These scores reflect historical hazard patterns, not real-time or
+          forecasted conditions. Each one is a 0-100 percentile rank of a raw metric,
+          calculated ahead of time from recent history (2015-2024 unless noted), so
+          nothing here updates with current weather. Ranking by percentile lets
+          categories with different units sit on the same scale. Wildfire, seismic and
+          hurricane come from models of long-term hazard rather than past events.
         </p>
 
         <div className="flex flex-col gap-3">
@@ -110,11 +103,9 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="mt-4 text-xs text-gray-400">
-          Lightning was considered and dropped for v1 -- no clean, free, consistent
-          CONUS-wide feed was found. Zip codes are mapped to ZCTAs via the HRSA
-          ZIP-to-ZCTA crosswalk, so PO-box-only zips (which have no land area of
-          their own) resolve to the ZCTA containing them -- the detail panel shows
-          both codes when they differ.
+          Zip codes are matched to ZCTAs using the HRSA crosswalk. A PO-box-only zip
+          has no land area of its own, so it shows the ZCTA that contains it, and the
+          detail panel lists both codes when they differ.
         </p>
       </div>
     </div>
