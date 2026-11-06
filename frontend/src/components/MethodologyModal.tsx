@@ -84,6 +84,19 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="mb-4 text-sm text-gray-600">
+          Created by Max Keller
+          <br />
+          <a
+            href="https://www.linkedin.com/in/max-keller-46343a384"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline"
+          >
+            www.linkedin.com/in/max-keller-46343a384
+          </a>
+        </p>
+
+        <p className="mb-4 text-sm text-gray-600">
           These scores reflect historical hazard patterns, not real-time or
           forecasted conditions. Each one is a 0-100 percentile rank of a raw metric,
           calculated ahead of time from recent history (2015-2024 unless noted), so
