@@ -103,6 +103,9 @@ export default function MethodologyModal({ onClose }: { onClose: () => void }) {
           nothing here updates with current weather. Ranking by percentile lets
           categories with different units sit on the same scale. Wildfire, seismic and
           hurricane come from models of long-term hazard rather than past events.
+          Any risk score involves judgment calls, such as which data to use, how to
+          weight it and where to draw the lines, so these scores are a rough guide to
+          relative hazard, not established fact.
         </p>
 
         <div className="flex flex-col gap-3">
